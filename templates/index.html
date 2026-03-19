@@ -1,0 +1,106 @@
+{% extends "base.html" %}
+{% block title %}首页概览{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h1><i class="bi bi-house"></i> 首页概览</h1>
+    <p>欢迎使用引用通知系统，按以下三个步骤完成引用通知邮件的发送</p>
+</div>
+
+<!-- 统计卡片 -->
+<div class="row g-3 mb-4">
+    <div class="col">
+        <div class="stat-card">
+            <div class="number">{{ stats.input_files }}</div>
+            <div class="label">待处理文章</div>
+        </div>
+    </div>
+    <div class="col">
+        <div class="stat-card">
+            <div class="number">{{ stats.references }}</div>
+            <div class="label">已提取参考文献</div>
+        </div>
+    </div>
+    <div class="col">
+        <div class="stat-card">
+            <div class="number">{{ stats.emails_found }}</div>
+            <div class="label">已找到邮箱</div>
+        </div>
+    </div>
+    <div class="col">
+        <div class="stat-card">
+            <div class="number">{{ stats.emails_failed }}</div>
+            <div class="label">待人工补充</div>
+        </div>
+    </div>
+    <div class="col">
+        <div class="stat-card">
+            <div class="number">{{ stats.emails_sent }}</div>
+            <div class="label">已发送邮件</div>
+        </div>
+    </div>
+</div>
+
+<!-- 操作流程 -->
+<div class="card">
+    <div class="card-header"><i class="bi bi-signpost-2"></i> 操作流程</div>
+    <div class="card-body">
+        <div class="row g-4">
+            <div class="col-md-4">
+                <div class="border rounded p-3 h-100">
+                    <h6><span class="badge bg-primary rounded-circle me-1">1</span> 提取参考文献</h6>
+                    <p class="text-muted small mb-2">
+                        上传本刊文章的 Word 或 PDF 文件，系统自动提取其中的参考文献列表并解析为结构化数据。
+                    </p>
+                    <a href="{{ url_for('extract_page') }}" class="btn btn-sm btn-outline-primary">
+                        前往操作 <i class="bi bi-arrow-right"></i>
+                    </a>
+                </div>
+            </div>
+            <div class="col-md-4">
+                <div class="border rounded p-3 h-100">
+                    <h6><span class="badge bg-primary rounded-circle me-1">2</span> 检索作者邮箱</h6>
+                    <p class="text-muted small mb-2">
+                        通过 CrossRef 等学术数据库 API 自动检索被引作者的联系邮箱。查不到的可以人工补充。
+                    </p>
+                    <a href="{{ url_for('lookup_page') }}" class="btn btn-sm btn-outline-primary">
+                        前往操作 <i class="bi bi-arrow-right"></i>
+                    </a>
+                </div>
+            </div>
+            <div class="col-md-4">
+                <div class="border rounded p-3 h-100">
+                    <h6><span class="badge bg-primary rounded-circle me-1">3</span> 预览与发送</h6>
+                    <p class="text-muted small mb-2">
+                        预览每封邮件的内容，确认无误后批量发送引用通知邮件给被引作者。
+                    </p>
+                    <a href="{{ url_for('send_page') }}" class="btn btn-sm btn-outline-primary">
+                        前往操作 <i class="bi bi-arrow-right"></i>
+                    </a>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 数据下载 -->
+<div class="card mt-3">
+    <div class="card-header"><i class="bi bi-download"></i> 数据下载</div>
+    <div class="card-body">
+        <div class="d-flex flex-wrap gap-2">
+            <a href="{{ url_for('download_file', filename='references.csv') }}" class="btn btn-sm btn-outline-secondary">
+                <i class="bi bi-file-earmark-spreadsheet"></i> 参考文献数据
+            </a>
+            <a href="{{ url_for('download_file', filename='authors_emails.csv') }}" class="btn btn-sm btn-outline-secondary">
+                <i class="bi bi-file-earmark-spreadsheet"></i> 邮箱检索结果
+            </a>
+            <a href="{{ url_for('download_file', filename='failed_lookup.csv') }}" class="btn btn-sm btn-outline-secondary">
+                <i class="bi bi-file-earmark-spreadsheet"></i> 待人工补充
+            </a>
+            <a href="{{ url_for('download_file', filename='sent_log.csv') }}" class="btn btn-sm btn-outline-secondary">
+                <i class="bi bi-file-earmark-spreadsheet"></i> 发送日志
+            </a>
+        </div>
+    </div>
+</div>
+{% endblock %}

@@ -1,0 +1,143 @@
+{% extends "base.html" %}
+{% block title %}系统配置{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h1><i class="bi bi-gear"></i> 系统配置</h1>
+    <p>配置 SMTP 邮件发送和学术 API 参数</p>
+</div>
+
+<form method="POST" action="{{ url_for('config_page') }}">
+    <!-- SMTP 配置 -->
+    <div class="card mb-3">
+        <div class="card-header">
+            <i class="bi bi-envelope"></i> SMTP 邮件发送配置
+            <button type="button" class="btn btn-sm btn-outline-success float-end" id="testSmtpBtn">
+                <i class="bi bi-check-circle"></i> 测试连接
+            </button>
+        </div>
+        <div class="card-body">
+            <div class="alert alert-info small">
+                <i class="bi bi-info-circle"></i>
+                <strong>什么是 SMTP？</strong>
+                SMTP 是邮件发送协议。脚本通过它来操作你的邮箱发邮件。你只需提供邮箱地址和授权码。<br>
+                <strong>QQ邮箱</strong>：登录网页版 → 设置 → 账户 → 开启 SMTP → 获取授权码。服务器 smtp.qq.com，端口 465。<br>
+                <strong>163邮箱</strong>：设置 → POP3/SMTP → 开启。服务器 smtp.163.com，端口 465。
+            </div>
+            <div class="row g-3">
+                <div class="col-md-4">
+                    <label class="form-label">SMTP 服务器</label>
+                    <input type="text" class="form-control" name="smtp_server"
+                        value="{{ config.get('smtp', {}).get('server', 'smtp.qq.com') }}"
+                        placeholder="smtp.qq.com">
+                </div>
+                <div class="col-md-2">
+                    <label class="form-label">端口</label>
+                    <input type="number" class="form-control" name="smtp_port"
+                        value="{{ config.get('smtp', {}).get('port', 465) }}">
+                </div>
+                <div class="col-md-2">
+                    <label class="form-label">SSL</label>
+                    <div class="form-check form-switch mt-2">
+                        <input class="form-check-input" type="checkbox" name="smtp_ssl"
+                            {{ 'checked' if config.get('smtp', {}).get('use_ssl', True) }}>
+                        <label class="form-check-label">启用 SSL</label>
+                    </div>
+                </div>
+                <div class="col-md-4">
+                    <label class="form-label">发件人显示名称</label>
+                    <input type="text" class="form-control" name="smtp_sender_name"
+                        value="{{ config.get('smtp', {}).get('sender_name', '《创新与创业教育》编辑部') }}">
+                </div>
+                <div class="col-md-6">
+                    <label class="form-label">邮箱地址</label>
+                    <input type="email" class="form-control" name="smtp_username"
+                        value="{{ config.get('smtp', {}).get('username', '') }}"
+                        placeholder="your_email@qq.com">
+                </div>
+                <div class="col-md-6">
+                    <label class="form-label">密码 / 授权码</label>
+                    <input type="password" class="form-control" name="smtp_password"
+                        value="{{ config.get('smtp', {}).get('password', '') }}"
+                        placeholder="授权码（非登录密码）">
+                </div>
+            </div>
+            <div id="smtpTestResult" class="mt-2" style="display:none"></div>
+        </div>
+    </div>
+
+    <!-- 刊物信息 -->
+    <div class="card mb-3">
+        <div class="card-header"><i class="bi bi-journal-text"></i> 刊物信息</div>
+        <div class="card-body">
+            <div class="row g-3">
+                <div class="col-md-4">
+                    <label class="form-label">刊物名称（中文）</label>
+                    <input type="text" class="form-control" name="journal_name"
+                        value="{{ config.get('journal', {}).get('name', '创新与创业教育') }}">
+                </div>
+                <div class="col-md-4">
+                    <label class="form-label">刊物名称（英文）</label>
+                    <input type="text" class="form-control" name="journal_name_en"
+                        value="{{ config.get('journal', {}).get('name_en', 'Innovation and Entrepreneurship Education') }}">
+                </div>
+                <div class="col-md-4">
+                    <label class="form-label">刊物网站 URL</label>
+                    <input type="url" class="form-control" name="journal_website"
+                        value="{{ config.get('journal', {}).get('website', '') }}"
+                        placeholder="https://...">
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- CrossRef API -->
+    <div class="card mb-3">
+        <div class="card-header"><i class="bi bi-search"></i> CrossRef API 配置</div>
+        <div class="card-body">
+            <div class="row g-3">
+                <div class="col-md-6">
+                    <label class="form-label">联系邮箱（用于 Polite Pool，加快请求速度）</label>
+                    <input type="email" class="form-control" name="crossref_mailto"
+                        value="{{ config.get('crossref', {}).get('mailto', '') }}"
+                        placeholder="your_email@example.com">
+                    <div class="form-text">填写后 CrossRef API 请求速度会更快（免费，无需注册）</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <button type="submit" class="btn btn-primary">
+        <i class="bi bi-check-lg"></i> 保存配置
+    </button>
+</form>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.getElementById('testSmtpBtn').addEventListener('click', function() {
+    const btn = this;
+    const result = document.getElementById('smtpTestResult');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> 测试中...';
+    result.style.display = 'none';
+
+    fetch('{{ url_for("test_smtp") }}', { method: 'POST' })
+        .then(r => r.json())
+        .then(data => {
+            result.style.display = 'block';
+            result.className = 'mt-2 alert alert-' + (data.success ? 'success' : 'danger');
+            result.textContent = data.message;
+        })
+        .catch(e => {
+            result.style.display = 'block';
+            result.className = 'mt-2 alert alert-danger';
+            result.textContent = '请求失败: ' + e;
+        })
+        .finally(() => {
+            btn.disabled = false;
+            btn.innerHTML = '<i class="bi bi-check-circle"></i> 测试连接';
+        });
+});
+</script>
+{% endblock %}

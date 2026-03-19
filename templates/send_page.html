@@ -1,0 +1,159 @@
+{% extends "base.html" %}
+{% block title %}预览与发送{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h1><span class="badge bg-primary rounded-circle me-2">3</span> 预览与发送</h1>
+    <p>预览邮件内容，确认无误后发送引用通知</p>
+</div>
+
+{% if task_status.running and task_status.stage == '邮件发送' %}
+<div class="task-running mb-3">
+    <span class="spinner-border spinner-border-sm text-warning"></span>
+    <strong>邮件正在发送中...</strong>
+    <span class="text-muted ms-2">{{ task_status.progress }}</span>
+    <button class="btn btn-sm btn-outline-secondary ms-auto" onclick="location.reload()">
+        <i class="bi bi-arrow-clockwise"></i> 刷新
+    </button>
+</div>
+{% endif %}
+
+<div class="row g-3">
+    <!-- 左侧：邮件列表 -->
+    <div class="col-md-4">
+        <div class="card mb-3">
+            <div class="card-header">
+                <i class="bi bi-envelope-paper"></i> 待发送邮件
+                <span class="badge bg-primary float-end">{{ previews|length }}</span>
+            </div>
+            <div class="card-body p-0">
+                {% if previews %}
+                <div class="list-group list-group-flush" style="max-height:400px;overflow-y:auto">
+                    {% for p in previews %}
+                    <a href="#" class="list-group-item list-group-item-action py-2 preview-item"
+                        data-index="{{ loop.index0 }}">
+                        <div class="d-flex justify-content-between">
+                            <strong class="small">{{ p.author_name or '未知作者' }}</strong>
+                            <span class="badge bg-secondary">{{ p.citation_count }}</span>
+                        </div>
+                        <small class="text-muted">{{ p.email }}</small>
+                    </a>
+                    {% endfor %}
+                </div>
+                {% else %}
+                <div class="text-center text-muted py-4">
+                    <i class="bi bi-inbox" style="font-size:2em"></i>
+                    <p class="mt-2 mb-0">暂无可发送的邮件</p>
+                    <p class="small">请先完成第一步和第二步</p>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+
+        {% if previews %}
+        <form method="POST" action="{{ url_for('run_send') }}"
+            onsubmit="return confirm('确定要向 {{ previews|length }} 位作者发送邮件吗？')">
+            <button type="submit" class="btn btn-success w-100 btn-lg"
+                {{ 'disabled' if task_status.running }}>
+                <i class="bi bi-send"></i> 发送全部 ({{ previews|length }} 封)
+            </button>
+        </form>
+        {% endif %}
+
+        <!-- 发送统计 -->
+        {% if sent_data %}
+        <div class="card mt-3">
+            <div class="card-header">
+                <i class="bi bi-clock-history"></i> 发送记录
+                <span class="badge bg-secondary float-end">{{ sent_data|length }}</span>
+            </div>
+            <div class="card-body p-0">
+                <div class="list-group list-group-flush" style="max-height:200px;overflow-y:auto">
+                    {% for s in sent_data %}
+                    <div class="list-group-item py-1">
+                        <small>
+                            {% if s.status == '成功' %}
+                            <i class="bi bi-check-circle text-success"></i>
+                            {% else %}
+                            <i class="bi bi-x-circle text-danger"></i>
+                            {% endif %}
+                            {{ s.email }} — {{ s.status }}
+                        </small>
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+        </div>
+        {% endif %}
+    </div>
+
+    <!-- 右侧：邮件预览 -->
+    <div class="col-md-8">
+        <div class="card">
+            <div class="card-header">
+                <i class="bi bi-eye"></i> 邮件内容预览
+            </div>
+            <div class="card-body">
+                {% if previews %}
+                <div id="previewContainer">
+                    <div class="mb-2">
+                        <strong>收件人：</strong> <span id="previewTo">{{ previews[0].email }}</span><br>
+                        <strong>主　题：</strong> <span id="previewSubject">{{ previews[0].subject }}</span>
+                    </div>
+                    <div class="email-preview-frame">
+                        <iframe id="previewFrame" srcdoc="{{ previews[0].html_body|e }}"></iframe>
+                    </div>
+                </div>
+                {% else %}
+                <div class="text-center text-muted py-5">
+                    <i class="bi bi-envelope-open" style="font-size:3em"></i>
+                    <p class="mt-2">请先完成前两步，生成邮件数据后即可预览</p>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+{% if previews %}
+<script>
+const previews = {{ previews|tojson }};
+const items = document.querySelectorAll('.preview-item');
+const frame = document.getElementById('previewFrame');
+const toEl = document.getElementById('previewTo');
+const subjectEl = document.getElementById('previewSubject');
+
+// 默认高亮第一个
+if (items.length > 0) items[0].classList.add('active');
+
+items.forEach(item => {
+    item.addEventListener('click', function(e) {
+        e.preventDefault();
+        const idx = parseInt(this.dataset.index);
+        const p = previews[idx];
+
+        // 更新预览
+        frame.srcdoc = p.html_body;
+        toEl.textContent = p.email;
+        subjectEl.textContent = p.subject;
+
+        // 高亮
+        items.forEach(i => i.classList.remove('active'));
+        this.classList.add('active');
+    });
+});
+</script>
+{% endif %}
+
+{% if task_status.running and task_status.stage == '邮件发送' %}
+<script>
+setInterval(function() {
+    fetch('/api/task-status')
+        .then(r => r.json())
+        .then(data => { if (!data.running) location.reload(); });
+}, 5000);
+</script>
+{% endif %}
+{% endblock %}

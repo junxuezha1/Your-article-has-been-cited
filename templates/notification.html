@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <style>
+        body {
+            font-family: "Microsoft YaHei", "SimSun", Arial, sans-serif;
+            color: #333;
+            line-height: 1.8;
+            max-width: 680px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        .header {
+            border-bottom: 2px solid #1a5276;
+            padding-bottom: 12px;
+            margin-bottom: 20px;
+        }
+        .header h2 {
+            color: #1a5276;
+            margin: 0;
+            font-size: 18px;
+        }
+        .citation-block {
+            background: #f8f9fa;
+            border-left: 4px solid #1a5276;
+            padding: 12px 16px;
+            margin: 12px 0;
+            font-size: 14px;
+        }
+        .citation-block .label {
+            color: #666;
+            font-size: 12px;
+        }
+        .citation-block .value {
+            color: #222;
+            font-weight: bold;
+        }
+        .doi-link {
+            color: #1a5276;
+            text-decoration: none;
+        }
+        .footer {
+            margin-top: 30px;
+            padding-top: 12px;
+            border-top: 1px solid #ddd;
+            font-size: 12px;
+            color: #888;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h2>《{{ journal_name }}》引用通知</h2>
+    </div>
+
+    <p>{{ author_name }} 老师/教授，您好！</p>
+
+    <p>
+        我们是《{{ journal_name }}》（{{ journal_name_en }}）编辑部。
+        非常荣幸地通知您，您的学术成果在本刊近期发表的文章中被引用。
+        具体引用信息如下：
+    </p>
+
+    {% for citation in citations %}
+    <div class="citation-block">
+        <p>
+            <span class="label">您被引用的文章：</span><br>
+            <span class="value">{{ citation.cited_paper_title }}</span>
+        </p>
+        <p>
+            <span class="label">引用该文献的本刊文章：</span><br>
+            <span class="value">{{ citation.citing_paper_title }}</span>
+        </p>
+        {% if citation.cited_paper_doi and citation.cited_paper_doi != 'nan' %}
+        <p>
+            <span class="label">DOI：</span>
+            <a href="https://doi.org/{{ citation.cited_paper_doi }}" class="doi-link">
+                {{ citation.cited_paper_doi }}
+            </a>
+        </p>
+        {% endif %}
+    </div>
+    {% endfor %}
+
+    <p>
+        感谢您的研究成果对相关学术领域的贡献。如您希望进一步了解引用详情，
+        欢迎访问本刊官方网站{% if journal_website %}（<a href="{{ journal_website }}">{{ journal_website }}</a>）{% endif %}查阅全文。
+    </p>
+
+    <p>
+        此致<br>
+        敬礼
+    </p>
+
+    <p>
+        《{{ journal_name }}》编辑部<br>
+        {{ year }} 年
+    </p>
+
+    <div class="footer">
+        <p>
+            本邮件为系统自动发送的学术引用通知，旨在促进学术交流。
+            如有任何疑问，请直接回复本邮件与编辑部联系。
+        </p>
+    </div>
+</body>
+</html>

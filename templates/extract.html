@@ -1,0 +1,128 @@
+{% extends "base.html" %}
+{% block title %}提取参考文献{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h1><span class="badge bg-primary rounded-circle me-2">1</span> 提取参考文献</h1>
+    <p>上传本刊文章，自动提取其中的参考文献列表</p>
+</div>
+
+<div class="row g-3">
+    <!-- 左侧：上传区域 -->
+    <div class="col-md-4">
+        <div class="card mb-3">
+            <div class="card-header"><i class="bi bi-cloud-upload"></i> 上传文章</div>
+            <div class="card-body">
+                <form method="POST" action="{{ url_for('upload_files') }}" enctype="multipart/form-data">
+                    <div class="mb-3">
+                        <input type="file" class="form-control" name="files" multiple
+                            accept=".doc,.docx,.pdf">
+                        <div class="form-text">支持 .doc、.docx 和 .pdf 格式，可多选</div>
+                    </div>
+                    <button type="submit" class="btn btn-primary w-100">
+                        <i class="bi bi-upload"></i> 上传
+                    </button>
+                </form>
+            </div>
+        </div>
+
+        <!-- 已上传文件列表 -->
+        <div class="card mb-3">
+            <div class="card-header">
+                <i class="bi bi-folder2-open"></i> 已上传文件
+                <span class="badge bg-secondary float-end">{{ files|length }}</span>
+            </div>
+            <div class="card-body p-0">
+                {% if files %}
+                <div class="list-group list-group-flush">
+                    {% for f in files %}
+                    <div class="list-group-item d-flex justify-content-between align-items-center py-2">
+                        <div>
+                            <i class="bi bi-file-earmark-{{ 'word' if f.type == '.docx' else 'pdf' }}"></i>
+                            <small>{{ f.name }}</small>
+                            <br><small class="text-muted">{{ f.size }}</small>
+                        </div>
+                        <form method="POST" action="{{ url_for('delete_file', filename=f.name) }}"
+                            onsubmit="return confirm('确定删除？')">
+                            <button type="submit" class="btn btn-sm btn-outline-danger">
+                                <i class="bi bi-trash"></i>
+                            </button>
+                        </form>
+                    </div>
+                    {% endfor %}
+                </div>
+                {% else %}
+                <div class="text-center text-muted py-4">
+                    <i class="bi bi-inbox" style="font-size:2em"></i>
+                    <p class="mt-2 mb-0">暂无文件</p>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+
+        {% if files %}
+        <form method="POST" action="{{ url_for('run_extract') }}">
+            <button type="submit" class="btn btn-success w-100 btn-lg">
+                <i class="bi bi-play-fill"></i> 开始提取参考文献
+            </button>
+        </form>
+        {% endif %}
+    </div>
+
+    <!-- 右侧：提取结果 -->
+    <div class="col-md-8">
+        <div class="card">
+            <div class="card-header">
+                <i class="bi bi-table"></i> 提取结果
+                <span class="badge bg-secondary float-end">{{ references|length }} 条</span>
+            </div>
+            <div class="card-body p-0">
+                {% if references %}
+                <div class="table-responsive">
+                    <table class="table table-hover table-sm mb-0">
+                        <thead>
+                            <tr>
+                                <th style="width:40px">#</th>
+                                <th>来源文章</th>
+                                <th>参考文献标题</th>
+                                <th>作者</th>
+                                <th>年份</th>
+                                <th>DOI</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for ref in references %}
+                            <tr>
+                                <td>{{ ref.ref_number if ref.ref_number and ref.ref_number == ref.ref_number else loop.index }}</td>
+                                <td><small class="text-muted">{{ ref.source_file or '' }}</small></td>
+                                <td>{{ (ref.title|string)[:60] }}{{ '...' if (ref.title|string)|length > 60 }}</td>
+                                <td><small>{{ (ref.authors|string)[:30] }}{{ '...' if (ref.authors|string)|length > 30 }}</small></td>
+                                <td>{{ ref.year if ref.year and ref.year == ref.year else '' }}</td>
+                                <td><small>{{ (ref.doi|string)[:25] if ref.doi and ref.doi == ref.doi else '-' }}</small></td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                {% else %}
+                <div class="text-center text-muted py-5">
+                    <i class="bi bi-journal-text" style="font-size:2em"></i>
+                    <p class="mt-2 mb-0">暂无数据，请先上传文章并点击"开始提取"</p>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+
+        {% if references %}
+        <div class="mt-3 text-end">
+            <a href="{{ url_for('download_file', filename='references.csv') }}" class="btn btn-sm btn-outline-secondary">
+                <i class="bi bi-download"></i> 下载 CSV
+            </a>
+            <a href="{{ url_for('lookup_page') }}" class="btn btn-sm btn-primary">
+                下一步：检索邮箱 <i class="bi bi-arrow-right"></i>
+            </a>
+        </div>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}

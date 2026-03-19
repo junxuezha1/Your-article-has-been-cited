@@ -1,0 +1,180 @@
+{% extends "base.html" %}
+{% block title %}检索作者邮箱{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h1><span class="badge bg-primary rounded-circle me-2">2</span> 检索作者邮箱</h1>
+    <p>通过 CrossRef / Semantic Scholar 自动检索被引作者的联系邮箱</p>
+</div>
+
+{% if task_status.running and task_status.stage == '邮箱检索' %}
+<div class="task-running mb-3">
+    <span class="spinner-border spinner-border-sm text-warning"></span>
+    <strong>邮箱检索正在运行中...</strong>
+    <span class="text-muted ms-2">{{ task_status.progress }}</span>
+    <button class="btn btn-sm btn-outline-secondary ms-auto" onclick="location.reload()">
+        <i class="bi bi-arrow-clockwise"></i> 刷新
+    </button>
+</div>
+{% endif %}
+
+<div class="row g-3">
+    <!-- 操作面板 -->
+    <div class="col-md-4">
+        <div class="card mb-3">
+            <div class="card-header"><i class="bi bi-search"></i> 自动检索</div>
+            <div class="card-body">
+                {% if not has_references %}
+                <div class="alert alert-warning small">
+                    <i class="bi bi-exclamation-triangle"></i>
+                    请先完成第一步（提取参考文献）
+                </div>
+                {% else %}
+                <p class="small text-muted">
+                    系统将逐条查询参考文献，通过 CrossRef 和 Semantic Scholar API 检索通讯作者邮箱。
+                    此过程可能需要几分钟。
+                </p>
+                <form method="POST" action="{{ url_for('run_lookup') }}">
+                    <button type="submit" class="btn btn-success w-100"
+                        {{ 'disabled' if task_status.running }}>
+                        <i class="bi bi-play-fill"></i> 开始检索
+                    </button>
+                </form>
+                {% endif %}
+            </div>
+        </div>
+
+        <div class="card mb-3">
+            <div class="card-header"><i class="bi bi-person-plus"></i> 人工补充邮箱</div>
+            <div class="card-body">
+                <p class="small text-muted">
+                    下载"待人工补充"文件，在知网上查找缺失的邮箱后填入，再上传合并。
+                    CSV 文件需包含 <code>title</code> 和 <code>email</code> 两列。
+                </p>
+                <a href="{{ url_for('download_file', filename='failed_lookup.csv') }}"
+                    class="btn btn-sm btn-outline-secondary w-100 mb-2">
+                    <i class="bi bi-download"></i> 下载待补充清单
+                </a>
+                <form method="POST" action="{{ url_for('upload_supplement') }}" enctype="multipart/form-data">
+                    <div class="input-group input-group-sm">
+                        <input type="file" class="form-control" name="supplement_file" accept=".csv">
+                        <button type="submit" class="btn btn-outline-primary">上传合并</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+
+        <!-- 统计 -->
+        <div class="card">
+            <div class="card-body text-center">
+                <div class="row">
+                    <div class="col-6">
+                        <div class="h4 text-success mb-0">{{ emails_data|length }}</div>
+                        <small class="text-muted">已找到邮箱</small>
+                    </div>
+                    <div class="col-6">
+                        <div class="h4 text-warning mb-0">{{ failed_data|length }}</div>
+                        <small class="text-muted">待人工补充</small>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 结果表格 -->
+    <div class="col-md-8">
+        <!-- 已找到邮箱 -->
+        <div class="card mb-3">
+            <div class="card-header">
+                <i class="bi bi-check-circle text-success"></i> 已找到邮箱
+                <span class="badge bg-success float-end">{{ emails_data|length }}</span>
+            </div>
+            <div class="card-body p-0">
+                {% if emails_data %}
+                <div class="table-responsive" style="max-height:350px;overflow-y:auto">
+                    <table class="table table-hover table-sm mb-0">
+                        <thead>
+                            <tr>
+                                <th>参考文献标题</th>
+                                <th>通讯作者</th>
+                                <th>邮箱</th>
+                                <th>来源</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for row in emails_data %}
+                            <tr>
+                                <td><small>{{ row.title[:50] if row.title else '-' }}</small></td>
+                                <td><small>{{ row.corresponding_author or '-' }}</small></td>
+                                <td><small class="text-primary">{{ row.email or '-' }}</small></td>
+                                <td><small class="text-muted">{{ row.lookup_source or '-' }}</small></td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                {% else %}
+                <div class="text-center text-muted py-4">暂无数据</div>
+                {% endif %}
+            </div>
+        </div>
+
+        <!-- 未找到邮箱 -->
+        <div class="card">
+            <div class="card-header">
+                <i class="bi bi-exclamation-triangle text-warning"></i> 未找到邮箱（需人工补充）
+                <span class="badge bg-warning text-dark float-end">{{ failed_data|length }}</span>
+            </div>
+            <div class="card-body p-0">
+                {% if failed_data %}
+                <div class="table-responsive" style="max-height:300px;overflow-y:auto">
+                    <table class="table table-hover table-sm mb-0">
+                        <thead>
+                            <tr>
+                                <th>参考文献标题</th>
+                                <th>作者</th>
+                                <th>年份</th>
+                                <th>状态</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for row in failed_data %}
+                            <tr>
+                                <td><small>{{ row.title[:50] if row.title else '-' }}</small></td>
+                                <td><small>{{ row.authors[:30] if row.authors else '-' }}</small></td>
+                                <td>{{ row.year or '-' }}</td>
+                                <td><small class="text-muted">{{ row.lookup_status or '-' }}</small></td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                {% else %}
+                <div class="text-center text-muted py-4">暂无数据</div>
+                {% endif %}
+            </div>
+        </div>
+
+        {% if emails_data %}
+        <div class="mt-3 text-end">
+            <a href="{{ url_for('send_page') }}" class="btn btn-sm btn-primary">
+                下一步：预览与发送 <i class="bi bi-arrow-right"></i>
+            </a>
+        </div>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+{% if task_status.running %}
+<script>
+// 自动刷新检查任务状态
+setInterval(function() {
+    fetch('/api/task-status')
+        .then(r => r.json())
+        .then(data => { if (!data.running) location.reload(); });
+}, 5000);
+</script>
+{% endif %}
+{% endblock %}
