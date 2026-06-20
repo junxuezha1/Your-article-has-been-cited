@@ -1,269 +1,97 @@
 """
-第二阶段：通过学术数据库 API 检索被引作者的联系邮箱
+第二阶段：通过本地 Excel 数据库检索被引作者的联系邮箱
 """
 
-import csv
 import os
-import time
-import urllib.parse
 
 import pandas as pd
-import requests
+
+from db_lookup import AuthorDatabase, create_database
 
 
-def lookup_emails(references_csv: str, config: dict) -> pd.DataFrame:
+def lookup_emails(references_csv: str, config: dict, author_db: AuthorDatabase = None) -> pd.DataFrame:
     """
-    读取参考文献 CSV，逐条通过 API 检索作者邮箱。
+    读取参考文献 CSV，逐条通过本地数据库检索作者邮箱。
+    同一篇参考文献有多个作者时，每个找到邮箱的作者单独生成一行。
     返回包含邮箱信息的 DataFrame。
     """
+    if author_db is None:
+        db_dir = config.get("paths", {}).get("local_db_dir", "数据")
+        if os.path.exists(db_dir):
+            author_db = create_database(db_dir)
+        else:
+            print(f"[警告] 本地数据库目录不存在: {db_dir}，所有记录将标记为未找到邮箱")
+
     df = pd.read_csv(references_csv, encoding="utf-8-sig")
     print(f"共加载 {len(df)} 条参考文献记录")
 
-    # 新增列
-    df["corresponding_author"] = ""
-    df["email"] = ""
-    df["lookup_source"] = ""
-    df["lookup_status"] = ""
-
-    crossref_cfg = config.get("crossref", {})
-    ss_cfg = config.get("semantic_scholar", {})
+    result_rows = []
 
     for idx, row in df.iterrows():
-        title = str(row.get("title", "")).strip()
-        doi = str(row.get("doi", "")).strip()
         authors = str(row.get("authors", "")).strip()
+        title = str(row.get("title", "")).strip()
 
-        if not title and not doi:
-            df.at[idx, "lookup_status"] = "跳过：标题和DOI均为空"
+        if not authors:
+            new_row = row.to_dict()
+            new_row.update({"corresponding_author": "", "email": "", "matched_name": "",
+                            "lookup_source": "", "lookup_status": "跳过：作者字段为空"})
+            result_rows.append(new_row)
             continue
 
         print(f"  [{idx + 1}/{len(df)}] 检索: {title[:50]}...")
 
-        # 策略1: 如果有 DOI，先用 DOI 查 CrossRef
-        if doi:
-            result = _query_crossref_by_doi(doi, crossref_cfg)
-            if result and result.get("email"):
-                _fill_result(df, idx, result, "CrossRef-DOI")
-                continue
+        found_any = False
+        if author_db:
+            for author_name in _parse_author_names(authors):
+                db_result = author_db.lookup_by_name(author_name)
+                if db_result and db_result.get("email"):
+                    new_row = row.to_dict()
+                    new_row["email"] = db_result.get("email", "")
+                    new_row["corresponding_author"] = db_result.get("corresponding_author", "") or db_result.get("name", "")
+                    new_row["matched_name"] = author_name
+                    new_row["lookup_source"] = "本地数据库"
+                    new_row["lookup_status"] = "成功"
+                    result_rows.append(new_row)
+                    print(f"    ✓ 找到邮箱: {db_result['email']} (匹配姓名: {author_name})")
+                    found_any = True
 
-        # 策略2: 用标题查 CrossRef
-        if title:
-            result = _query_crossref_by_title(title, crossref_cfg)
-            if result and result.get("email"):
-                _fill_result(df, idx, result, "CrossRef-Title")
-                continue
-            # 即使没有邮箱，如果匹配到了DOI也记录
-            if result and result.get("doi") and not doi:
-                df.at[idx, "doi"] = result["doi"]
+        if not found_any:
+            new_row = row.to_dict()
+            new_row.update({"corresponding_author": "", "email": "", "matched_name": "",
+                            "lookup_source": "", "lookup_status": "未找到邮箱"})
+            result_rows.append(new_row)
 
-        # 策略3: 用标题查 Semantic Scholar
-        if title:
-            result = _query_semantic_scholar(title, ss_cfg)
-            if result and result.get("email"):
-                _fill_result(df, idx, result, "SemanticScholar")
-                continue
-
-        df.at[idx, "lookup_status"] = "未找到邮箱"
-        time.sleep(1)  # 礼貌性延迟
-
-    return df
+    result_df = pd.DataFrame(result_rows)
+    for col in ["corresponding_author", "email", "matched_name", "lookup_source", "lookup_status"]:
+        if col not in result_df.columns:
+            result_df[col] = ""
+    return result_df
 
 
-def _fill_result(df: pd.DataFrame, idx: int, result: dict, source: str):
-    """将检索结果填入 DataFrame"""
-    df.at[idx, "email"] = result.get("email", "")
-    df.at[idx, "corresponding_author"] = result.get("corresponding_author", "")
-    df.at[idx, "lookup_source"] = source
-    df.at[idx, "lookup_status"] = "成功"
-    if result.get("doi"):
-        df.at[idx, "doi"] = result["doi"]
-    print(f"    ✓ 找到邮箱: {result['email']} (via {source})")
-
-
-def _query_crossref_by_doi(doi: str, config: dict) -> dict | None:
-    """通过 DOI 查询 CrossRef"""
-    base_url = config.get("base_url", "https://api.crossref.org")
-    mailto = config.get("mailto", "")
-    timeout = config.get("timeout", 15)
-
-    url = f"{base_url}/works/{urllib.parse.quote(doi, safe='')}"
-    params = {}
-    if mailto:
-        params["mailto"] = mailto
-
-    try:
-        resp = requests.get(url, params=params, timeout=timeout)
-        if resp.status_code != 200:
-            return None
-        data = resp.json().get("message", {})
-        return _extract_crossref_author_info(data)
-    except Exception as e:
-        print(f"    ✗ CrossRef DOI查询失败: {e}")
-        return None
-
-
-def _query_crossref_by_title(title: str, config: dict) -> dict | None:
-    """通过标题查询 CrossRef"""
-    base_url = config.get("base_url", "https://api.crossref.org")
-    mailto = config.get("mailto", "")
-    timeout = config.get("timeout", 15)
-
-    url = f"{base_url}/works"
-    params = {
-        "query.title": title,
-        "rows": 3,
-        "select": "DOI,title,author",
-    }
-    if mailto:
-        params["mailto"] = mailto
-
-    try:
-        resp = requests.get(url, params=params, timeout=timeout)
-        if resp.status_code != 200:
-            return None
-        items = resp.json().get("message", {}).get("items", [])
-        if not items:
-            return None
-
-        # 取第一个结果（CrossRef 已按相关性排序）
-        best = items[0]
-        # 简单验证标题是否匹配
-        cr_title = " ".join(best.get("title", []))
-        if not _titles_similar(title, cr_title):
-            return None
-
-        result = _extract_crossref_author_info(best)
-        result["doi"] = best.get("DOI", "")
-        return result
-    except Exception as e:
-        print(f"    ✗ CrossRef 标题查询失败: {e}")
-        return None
-
-
-def _extract_crossref_author_info(data: dict) -> dict:
-    """从 CrossRef 返回数据中提取通讯作者信息"""
-    result = {
-        "email": "",
-        "corresponding_author": "",
-        "doi": data.get("DOI", ""),
-    }
-
-    authors = data.get("author", [])
-    if not authors:
-        return result
-
-    # 优先查找标记了 ORCID 或有 affiliation 的通讯作者
-    for author in authors:
-        # CrossRef 中部分记录有 email 字段（少见但存在）
-        if "email" in author:
-            result["email"] = author["email"]
-            name = f"{author.get('given', '')} {author.get('family', '')}".strip()
-            result["corresponding_author"] = name
-            return result
-
-    # 如果没有直接的 email，记录第一作者姓名
-    first = authors[0]
-    result["corresponding_author"] = f"{first.get('given', '')} {first.get('family', '')}".strip()
+def _parse_author_names(authors_str: str) -> list:
+    """将 authors 字段拆分为姓名列表，支持分号或逗号分隔"""
+    if not authors_str or authors_str.strip() in ("", "nan"):
+        return []
+    if ";" in authors_str:
+        names = [n.strip() for n in authors_str.split(";")]
+    else:
+        names = [n.strip() for n in authors_str.split(",")]
+    # 过滤无意义的占位词
+    skip_tokens = {"等", "et al", "et al.", "others"}
+    seen = set()
+    result = []
+    for name in names:
+        if name and name.lower() not in skip_tokens and name not in seen:
+            seen.add(name)
+            result.append(name)
     return result
-
-
-def _query_semantic_scholar(title: str, config: dict) -> dict | None:
-    """通过 Semantic Scholar API 查询"""
-    base_url = config.get("base_url", "https://api.semanticscholar.org/graph/v1")
-    api_key = config.get("api_key", "")
-    timeout = config.get("timeout", 15)
-
-    url = f"{base_url}/paper/search"
-    params = {
-        "query": title,
-        "limit": 3,
-        "fields": "title,authors,externalIds",
-    }
-    headers = {}
-    if api_key:
-        headers["x-api-key"] = api_key
-
-    try:
-        resp = requests.get(url, params=params, headers=headers, timeout=timeout)
-        if resp.status_code != 200:
-            return None
-        papers = resp.json().get("data", [])
-        if not papers:
-            return None
-
-        best = papers[0]
-        ss_title = best.get("title", "")
-        if not _titles_similar(title, ss_title):
-            return None
-
-        # Semantic Scholar 通常不直接提供邮箱，但可以获取作者信息
-        authors = best.get("authors", [])
-        doi = best.get("externalIds", {}).get("DOI", "")
-
-        result = {
-            "email": "",
-            "corresponding_author": authors[0]["name"] if authors else "",
-            "doi": doi,
-        }
-
-        # 尝试通过作者详情页获取邮箱（部分作者公开了邮箱）
-        if authors:
-            author_id = authors[0].get("authorId")
-            if author_id:
-                email = _get_ss_author_email(author_id, base_url, headers, timeout)
-                if email:
-                    result["email"] = email
-
-        return result
-    except Exception as e:
-        print(f"    ✗ Semantic Scholar 查询失败: {e}")
-        return None
-
-
-def _get_ss_author_email(author_id: str, base_url: str, headers: dict, timeout: int) -> str:
-    """尝试从 Semantic Scholar 作者详情获取邮箱"""
-    try:
-        url = f"{base_url}/author/{author_id}"
-        params = {"fields": "name,url,homepage"}
-        resp = requests.get(url, params=params, headers=headers, timeout=timeout)
-        if resp.status_code == 200:
-            # Semantic Scholar 不直接暴露邮箱，但 homepage 可能有用
-            pass
-        return ""
-    except Exception:
-        return ""
-
-
-def _titles_similar(title1: str, title2: str) -> bool:
-    """简单判断两个标题是否相似"""
-    # 清理并比较
-    def clean(t):
-        t = t.lower().strip()
-        t = "".join(c for c in t if c.isalnum() or c == " " or '\u4e00' <= c <= '\u9fff')
-        return t
-
-    c1, c2 = clean(title1), clean(title2)
-    if not c1 or not c2:
-        return False
-
-    # 短标题用包含关系，长标题用字符重叠率
-    shorter = min(c1, c2, key=len)
-    longer = max(c1, c2, key=len)
-
-    if len(shorter) <= 10:
-        return shorter in longer
-
-    # 计算字符级别的相似度
-    set1, set2 = set(c1.split()), set(c2.split())
-    if not set1 or not set2:
-        return c1 in c2 or c2 in c1
-    overlap = len(set1 & set2) / max(len(set1), len(set2))
-    return overlap > 0.5
 
 
 def save_results(df: pd.DataFrame, emails_csv: str, failed_csv: str):
     """保存检索结果：成功的和失败的分别存储"""
-    os.makedirs(os.path.dirname(emails_csv), exist_ok=True)
+    dir_name = os.path.dirname(emails_csv)
+    if dir_name:
+        os.makedirs(dir_name, exist_ok=True)
 
     found = df[df["email"] != ""].copy()
     not_found = df[df["email"] == ""].copy()
@@ -274,7 +102,6 @@ def save_results(df: pd.DataFrame, emails_csv: str, failed_csv: str):
     print(f"\n检索完成:")
     print(f"  ✓ 找到邮箱: {len(found)} 条 → {emails_csv}")
     print(f"  ✗ 未找到邮箱: {len(not_found)} 条 → {failed_csv}")
-    print(f"  （请人工在知网查找未找到邮箱的条目，填入 manual_supplement.csv）")
 
     return found, not_found
 
@@ -290,13 +117,11 @@ def merge_manual_supplement(emails_csv: str, supplement_csv: str) -> pd.DataFram
     df_supp = pd.read_csv(supplement_csv, encoding="utf-8-sig")
     print(f"加载 {len(df_supp)} 条人工补充记录")
 
-    # 补充文件至少需要 title 和 email 两列
     required_cols = {"title", "email"}
     if not required_cols.issubset(set(df_supp.columns)):
         print(f"错误：补充文件需要包含以下列: {required_cols}")
         return df_main
 
-    # 合并：将补充数据追加到主数据
     new_rows = []
     for _, row in df_supp.iterrows():
         if pd.notna(row["email"]) and str(row["email"]).strip():

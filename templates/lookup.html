@@ -1,10 +1,10 @@
-{% extends "base.html" %}
+﻿{% extends "base.html" %}
 {% block title %}检索作者邮箱{% endblock %}
 
 {% block content %}
 <div class="page-header">
     <h1><span class="badge bg-primary rounded-circle me-2">2</span> 检索作者邮箱</h1>
-    <p>通过 CrossRef / Semantic Scholar 自动检索被引作者的联系邮箱</p>
+    <p>通过本地数据库检索被引作者的联系邮箱</p>
 </div>
 
 {% if task_status.running and task_status.stage == '邮箱检索' %}
@@ -31,7 +31,7 @@
                 </div>
                 {% else %}
                 <p class="small text-muted">
-                    系统将逐条查询参考文献，通过 CrossRef 和 Semantic Scholar API 检索通讯作者邮箱。
+                    系统将逐条查询参考文献，并在本地作者库中检索通讯作者邮箱。
                     此过程可能需要几分钟。
                 </p>
                 <form method="POST" action="{{ url_for('run_lookup') }}">
@@ -85,29 +85,75 @@
     <div class="col-md-8">
         <!-- 已找到邮箱 -->
         <div class="card mb-3">
-            <div class="card-header">
-                <i class="bi bi-check-circle text-success"></i> 已找到邮箱
-                <span class="badge bg-success float-end">{{ emails_data|length }}</span>
+            <div class="card-header d-flex align-items-center justify-content-between">
+                <span>
+                    <i class="bi bi-check-circle text-success"></i> 已找到邮箱
+                    <span class="badge bg-success ms-1">{{ emails_data|length }}</span>
+                </span>
+                <input type="text" id="foundFilter" class="form-control form-control-sm w-auto"
+                    placeholder="搜索标题/作者/邮箱..." style="min-width:200px">
             </div>
+
+            <!-- 批量删除工具栏 -->
+            <div id="foundBatchBar" class="d-none px-3 py-2 bg-light border-bottom d-flex align-items-center gap-2">
+                <span id="foundSelectedCount" class="text-muted small">已选 0 条</span>
+                <form method="POST" action="{{ url_for('delete_lookup_rows_batch') }}" id="foundBatchForm">
+                    <input type="hidden" name="csv_type" value="found">
+                    <button type="submit" class="btn btn-sm btn-danger"
+                        onclick="return fillIndices('foundBatchForm','foundTable') && confirm('确定删除所选？')">
+                        <i class="bi bi-trash"></i> 删除所选
+                    </button>
+                </form>
+            </div>
+
             <div class="card-body p-0">
                 {% if emails_data %}
                 <div class="table-responsive" style="max-height:350px;overflow-y:auto">
-                    <table class="table table-hover table-sm mb-0">
+                    <table class="table table-hover table-sm mb-0" id="foundTable">
                         <thead>
                             <tr>
+                                <th style="width:36px">
+                                    <input type="checkbox" id="selectAllFound" class="form-check-input">
+                                </th>
                                 <th>参考文献标题</th>
                                 <th>通讯作者</th>
                                 <th>邮箱</th>
                                 <th>来源</th>
+                                <th>匹配姓名</th>
+                                <th></th>
                             </tr>
                         </thead>
                         <tbody>
                             {% for row in emails_data %}
                             <tr>
+                                <td>
+                                    <input type="checkbox" class="form-check-input row-check" value="{{ loop.index0 }}">
+                                </td>
                                 <td><small>{{ row.title[:50] if row.title else '-' }}</small></td>
                                 <td><small>{{ row.corresponding_author or '-' }}</small></td>
                                 <td><small class="text-primary">{{ row.email or '-' }}</small></td>
-                                <td><small class="text-muted">{{ row.lookup_source or '-' }}</small></td>
+                                <td><small class="text-muted">
+                                    {% if row.lookup_source == '人工补充' %}
+                                    <span class="badge bg-info text-dark">人工补充</span>
+                                    {% else %}
+                                    {{ row.lookup_source or '-' }}
+                                    {% endif %}
+                                </small></td>
+                                <td><small class="text-info">{{ row.matched_name or row.corresponding_author or '-' }}</small></td>
+                                <td class="d-flex gap-1">
+                                    <button type="button" class="btn btn-sm btn-outline-primary py-0 px-1"
+                                        onclick="openEditLookup({{ loop.index0 }}, '{{ row.email|e }}', '{{ row.corresponding_author|e }}', '{{ row.matched_name|e }}')"
+                                        title="编辑">
+                                        <i class="bi bi-pencil"></i>
+                                    </button>
+                                    <form method="POST" action="{{ url_for('delete_lookup_row') }}" onsubmit="return confirm('确定删除？')">
+                                        <input type="hidden" name="idx" value="{{ loop.index0 }}">
+                                        <input type="hidden" name="csv_type" value="found">
+                                        <button type="submit" class="btn btn-sm btn-outline-danger py-0 px-1">
+                                            <i class="bi bi-trash"></i>
+                                        </button>
+                                    </form>
+                                </td>
                             </tr>
                             {% endfor %}
                         </tbody>
@@ -121,29 +167,73 @@
 
         <!-- 未找到邮箱 -->
         <div class="card">
-            <div class="card-header">
-                <i class="bi bi-exclamation-triangle text-warning"></i> 未找到邮箱（需人工补充）
-                <span class="badge bg-warning text-dark float-end">{{ failed_data|length }}</span>
+            <div class="card-header d-flex align-items-center justify-content-between">
+                <span>
+                    <i class="bi bi-exclamation-triangle text-warning"></i> 未找到邮箱（需人工补充）
+                    <span class="badge bg-warning text-dark ms-1">{{ failed_data|length }}</span>
+                </span>
+                <input type="text" id="failedFilter" class="form-control form-control-sm w-auto"
+                    placeholder="搜索标题/作者..." style="min-width:200px">
             </div>
+
+            <!-- 批量删除工具栏 -->
+            <div id="failedBatchBar" class="d-none px-3 py-2 bg-light border-bottom d-flex align-items-center gap-2">
+                <span id="failedSelectedCount" class="text-muted small">已选 0 条</span>
+                <form method="POST" action="{{ url_for('delete_lookup_rows_batch') }}" id="failedBatchForm">
+                    <input type="hidden" name="csv_type" value="failed">
+                    <button type="submit" class="btn btn-sm btn-danger"
+                        onclick="return fillIndices('failedBatchForm','failedTable') && confirm('确定删除所选？')">
+                        <i class="bi bi-trash"></i> 删除所选
+                    </button>
+                </form>
+            </div>
+
             <div class="card-body p-0">
                 {% if failed_data %}
                 <div class="table-responsive" style="max-height:300px;overflow-y:auto">
-                    <table class="table table-hover table-sm mb-0">
+                    <table class="table table-hover table-sm mb-0" id="failedTable">
                         <thead>
                             <tr>
+                                <th style="width:36px">
+                                    <input type="checkbox" id="selectAllFailed" class="form-check-input">
+                                </th>
                                 <th>参考文献标题</th>
                                 <th>作者</th>
                                 <th>年份</th>
                                 <th>状态</th>
+                                <th>补充邮箱</th>
+                                <th></th>
                             </tr>
                         </thead>
                         <tbody>
                             {% for row in failed_data %}
                             <tr>
+                                <td>
+                                    <input type="checkbox" class="form-check-input row-check" value="{{ loop.index0 }}">
+                                </td>
                                 <td><small>{{ row.title[:50] if row.title else '-' }}</small></td>
                                 <td><small>{{ row.authors[:30] if row.authors else '-' }}</small></td>
                                 <td>{{ row.year or '-' }}</td>
                                 <td><small class="text-muted">{{ row.lookup_status or '-' }}</small></td>
+                                <td>
+                                    <form method="POST" action="{{ url_for('supplement_email') }}" class="d-flex gap-1">
+                                        <input type="hidden" name="idx" value="{{ loop.index0 }}">
+                                        <input type="email" name="email" class="form-control form-control-sm"
+                                            placeholder="输入邮箱..." style="min-width:160px" required>
+                                        <button type="submit" class="btn btn-sm btn-success py-0 px-2" title="保存">
+                                            <i class="bi bi-check-lg"></i>
+                                        </button>
+                                    </form>
+                                </td>
+                                <td>
+                                    <form method="POST" action="{{ url_for('delete_lookup_row') }}" onsubmit="return confirm('确定删除？')">
+                                        <input type="hidden" name="idx" value="{{ loop.index0 }}">
+                                        <input type="hidden" name="csv_type" value="failed">
+                                        <button type="submit" class="btn btn-sm btn-outline-danger py-0 px-1">
+                                            <i class="bi bi-trash"></i>
+                                        </button>
+                                    </form>
+                                </td>
                             </tr>
                             {% endfor %}
                         </tbody>
@@ -164,6 +254,39 @@
         {% endif %}
     </div>
 </div>
+
+<!-- 编辑检索结果 Modal -->
+<div class="modal fade" id="editLookupModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">编辑检索结果</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <form method="POST" action="/lookup/edit-row">
+        <div class="modal-body">
+          <input type="hidden" name="idx" id="editLookupIdx">
+          <div class="mb-3">
+            <label class="form-label">邮箱</label>
+            <input type="email" class="form-control" name="email" id="editLookupEmail" required>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">通讯作者</label>
+            <input type="text" class="form-control" name="corresponding_author" id="editLookupAuthor">
+          </div>
+          <div class="mb-3">
+            <label class="form-label">匹配姓名</label>
+            <input type="text" class="form-control" name="matched_name" id="editLookupName">
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+          <button type="submit" class="btn btn-primary">保存</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
 {% endblock %}
 
 {% block scripts %}
@@ -177,4 +300,61 @@ setInterval(function() {
 }, 5000);
 </script>
 {% endif %}
+<script>
+function openEditLookup(idx, email, author, name) {
+    document.getElementById('editLookupIdx').value = idx;
+    document.getElementById('editLookupEmail').value = email;
+    document.getElementById('editLookupAuthor').value = author;
+    document.getElementById('editLookupName').value = name;
+    new bootstrap.Modal(document.getElementById('editLookupModal')).show();
+}
+
+// 通用：筛选
+function setupFilter(filterId, tableId) {
+    document.getElementById(filterId).addEventListener('input', function() {
+        const q = this.value.toLowerCase();
+        document.querySelectorAll('#' + tableId + ' tbody tr').forEach(tr => {
+            tr.style.display = tr.textContent.toLowerCase().includes(q) ? '' : 'none';
+        });
+    });
+}
+
+// 通用：全选
+function setupSelectAll(selectAllId, tableId, barId, countId) {
+    document.getElementById(selectAllId).addEventListener('change', function() {
+        document.querySelectorAll('#' + tableId + ' .row-check').forEach(cb => {
+            if (cb.closest('tr').style.display !== 'none') cb.checked = this.checked;
+        });
+        updateBar(tableId, barId, countId);
+    });
+    document.getElementById(tableId).addEventListener('change', function(e) {
+        if (e.target.classList.contains('row-check')) updateBar(tableId, barId, countId);
+    });
+}
+
+function updateBar(tableId, barId, countId) {
+    const n = document.querySelectorAll('#' + tableId + ' .row-check:checked').length;
+    document.getElementById(countId).textContent = '已选 ' + n + ' 条';
+    document.getElementById(barId).classList.toggle('d-none', n === 0);
+}
+
+function fillIndices(formId, tableId) {
+    const form = document.getElementById(formId);
+    form.querySelectorAll('input[name="indices[]"]').forEach(el => el.remove());
+    const checked = document.querySelectorAll('#' + tableId + ' .row-check:checked');
+    if (checked.length === 0) { alert('请先选择要删除的条目'); return false; }
+    checked.forEach(cb => {
+        const inp = document.createElement('input');
+        inp.type = 'hidden'; inp.name = 'indices[]'; inp.value = cb.value;
+        form.appendChild(inp);
+    });
+    return true;
+}
+
+if (document.getElementById('foundFilter'))   setupFilter('foundFilter', 'foundTable');
+if (document.getElementById('failedFilter'))  setupFilter('failedFilter', 'failedTable');
+if (document.getElementById('selectAllFound')) setupSelectAll('selectAllFound', 'foundTable', 'foundBatchBar', 'foundSelectedCount');
+if (document.getElementById('selectAllFailed')) setupSelectAll('selectAllFailed', 'failedTable', 'failedBatchBar', 'failedSelectedCount');
+</script>
 {% endblock %}
+

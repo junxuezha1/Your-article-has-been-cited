@@ -6,11 +6,11 @@
 # ---- SMTP 邮件发送配置 ----
 smtp:
   server: "smtp.qq.com"          # SMTP 服务器地址
-  port: 465                       # 端口号（SSL=465, TLS=587）
-  use_ssl: true                   # true=SSL, false=TLS
-  username: "your_email@qq.com"   # 发件人邮箱
-  password: "your_auth_code"      # 邮箱授权码（非登录密码）
-  sender_name: "《创新与创业教育》编辑部"
+  port: 465                      # 端口号（SSL=465, TLS=587）
+  use_ssl: true                  # true=SSL, false=TLS
+  username: "your_email@qq.com"  # 发件人邮箱
+  password: "your_auth_code"     # 邮箱授权码（非登录密码）
+  sender_name: "由当前刊物自动决定"
 
 # ---- 邮件设置 ----
 email:
@@ -18,31 +18,19 @@ email:
   send_interval_seconds: 8
   template_file: "templates/notification.html"
 
-# ---- 刊物信息 ----
+# ---- Web 应用 ----
+app:
+  secret_key: "change-this-secret-key"
+
+# ---- 默认刊物信息（网页中会按当前切换的刊物覆盖名称和口吻）----
 journal:
   name: "创新与创业教育"
   name_en: "Innovation and Entrepreneurship Education"
   issn: ""
   website: ""
 
-# ---- CrossRef API ----
-crossref:
-  base_url: "https://api.crossref.org"
-  mailto: "your_email@example.com"  # 填写可获得更快响应
-  timeout: 15
-
-# ---- Semantic Scholar API ----
-semantic_scholar:
-  base_url: "https://api.semanticscholar.org/graph/v1"
-  api_key: ""  # 可选
-  timeout: 15
-
 # ---- 数据文件路径 ----
 paths:
-  input_dir: "data/input"
-  references_csv: "data/references.csv"
-  authors_emails_csv: "data/authors_emails.csv"
-  manual_supplement_csv: "data/manual_supplement.csv"
-  failed_lookup_csv: "data/failed_lookup.csv"
-  sent_log_csv: "data/sent_log.csv"
-  preview_dir: "data/preview"
+  # 运行数据由当前刊物自动隔离到 data/innovation 或 data/csu_social。
+  # 以下只保留本地作者库目录作为全局配置。
+  local_db_dir: "数据"

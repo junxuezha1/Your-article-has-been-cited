@@ -1,4 +1,4 @@
-{% extends "base.html" %}
+﻿{% extends "base.html" %}
 {% block title %}首页概览{% endblock %}
 
 {% block content %}
@@ -61,7 +61,7 @@
                 <div class="border rounded p-3 h-100">
                     <h6><span class="badge bg-primary rounded-circle me-1">2</span> 检索作者邮箱</h6>
                     <p class="text-muted small mb-2">
-                        通过 CrossRef 等学术数据库 API 自动检索被引作者的联系邮箱。查不到的可以人工补充。
+                        通过本地作者库自动检索被引作者的联系邮箱。查不到的可以人工补充。
                     </p>
                     <a href="{{ url_for('lookup_page') }}" class="btn btn-sm btn-outline-primary">
                         前往操作 <i class="bi bi-arrow-right"></i>
@@ -104,3 +104,4 @@
     </div>
 </div>
 {% endblock %}
+

@@ -2,6 +2,19 @@
 {% block title %}预览与发送{% endblock %}
 
 {% block content %}
+<style>
+#sentLogList {
+    max-height: none;
+    height: calc(100vh - 660px);
+    min-height: 80px;
+    overflow-y: auto;
+    resize: vertical;
+}
+#previewFrame {
+    height: calc(100vh - 310px) !important;
+    min-height: 300px;
+}
+</style>
 <div class="page-header">
     <h1><span class="badge bg-primary rounded-circle me-2">3</span> 预览与发送</h1>
     <p>预览邮件内容，确认无误后发送引用通知</p>
@@ -28,16 +41,49 @@
             </div>
             <div class="card-body p-0">
                 {% if previews %}
+                <!-- 搜索筛选框 -->
+                <div class="px-3 pt-2 pb-1">
+                    <input type="text" id="recipientFilter" class="form-control form-control-sm" placeholder="搜索作者名/邮箱...">
+                </div>
+                <!-- 全选行 -->
+                <div class="list-group-item py-1 bg-light d-flex align-items-center gap-2">
+                    <input type="checkbox" id="selectAllRecipients" checked>
+                    <small class="text-muted">全选</small>
+                </div>
+                <div class="px-3 py-1 bg-light border-bottom">
+                    <small class="text-muted">已选 <span id="sendCount2">{{ previews|length }}</span> 封，取消勾选的将不发送</small>
+                </div>
                 <div class="list-group list-group-flush" style="max-height:400px;overflow-y:auto">
                     {% for p in previews %}
-                    <a href="#" class="list-group-item list-group-item-action py-2 preview-item"
-                        data-index="{{ loop.index0 }}">
-                        <div class="d-flex justify-content-between">
-                            <strong class="small">{{ p.author_name or '未知作者' }}</strong>
-                            <span class="badge bg-secondary">{{ p.citation_count }}</span>
+                    <div class="list-group-item py-2 recipient-item" data-name="{{ p.author_name|lower }}" data-email="{{ p.email|lower }}">
+                        <div class="d-flex align-items-start gap-2">
+                            <input type="checkbox" class="recipient-check mt-1" value="{{ p.email }}" checked>
+                            <a href="#" class="preview-item flex-grow-1 text-decoration-none text-dark" data-index="{{ loop.index0 }}">
+                                <div class="d-flex justify-content-between">
+                                    <strong class="small">{{ p.author_name or '未知作者' }}</strong>
+                                    <span class="badge bg-secondary ms-1">{{ p.citation_count }}</span>
+                                </div>
+                                <small class="text-muted">{{ p.email }}</small>
+                            </a>
+                            <button type="button" class="btn btn-sm btn-outline-primary py-0 px-1"
+                                onclick="openEditRecipient('{{ p.email|e }}', '{{ p.author_name|e }}')"
+                                title="编辑收件人">
+                                <i class="bi bi-pencil"></i>
+                            </button>
+                            <button type="button" class="btn btn-sm btn-outline-secondary py-0 px-1"
+                                onclick="openEditEmail({{ loop.index0 }})"
+                                title="编辑邮件内容">
+                                <i class="bi bi-file-earmark-text"></i>
+                            </button>
+                            <form method="POST" action="{{ url_for('delete_send_recipient') }}"
+                                onsubmit="return confirm('确定删除该收件人？')">
+                                <input type="hidden" name="email" value="{{ p.email }}">
+                                <button type="submit" class="btn btn-sm btn-outline-danger py-0 px-1">
+                                    <i class="bi bi-trash"></i>
+                                </button>
+                            </form>
                         </div>
-                        <small class="text-muted">{{ p.email }}</small>
-                    </a>
+                    </div>
                     {% endfor %}
                 </div>
                 {% else %}
@@ -51,11 +97,11 @@
         </div>
 
         {% if previews %}
-        <form method="POST" action="{{ url_for('run_send') }}"
-            onsubmit="return confirm('确定要向 {{ previews|length }} 位作者发送邮件吗？')">
+        <form method="POST" action="{{ url_for('run_send') }}" id="sendForm"
+            onsubmit="return prepareSendForm()">
             <button type="submit" class="btn btn-success w-100 btn-lg"
-                {{ 'disabled' if task_status.running }}>
-                <i class="bi bi-send"></i> 发送全部 ({{ previews|length }} 封)
+                id="sendBtn" {{ 'disabled' if task_status.running }}>
+                <i class="bi bi-send"></i> 发送已选 <span id="sendCount">{{ previews|length }}</span> 封
             </button>
         </form>
         {% endif %}
@@ -63,27 +109,33 @@
         <!-- 发送统计 -->
         {% if sent_data %}
         <div class="card mt-3">
-            <div class="card-header">
+            <div class="card-header d-flex align-items-center gap-2">
                 <i class="bi bi-clock-history"></i> 发送记录
-                <span class="badge bg-secondary float-end">{{ sent_data|length }}</span>
+                <span class="badge bg-secondary ms-1">{{ sent_data|length }}</span>
+                <input type="text" id="sentLogFilter" class="form-control form-control-sm ms-auto" style="max-width:140px" placeholder="搜索邮箱...">
             </div>
             <div class="card-body p-0">
-                <div class="list-group list-group-flush" style="max-height:200px;overflow-y:auto">
-                    {% for s in sent_data %}
-                    <div class="list-group-item py-1">
+                <div id="sentLogList" class="list-group list-group-flush">
+                    {% for s in sent_data|reverse %}
+                    <div class="list-group-item py-1 sent-log-item" data-email="{{ s.email|lower }}">
                         <small>
                             {% if s.status == '成功' %}
                             <i class="bi bi-check-circle text-success"></i>
                             {% else %}
                             <i class="bi bi-x-circle text-danger"></i>
                             {% endif %}
-                            {{ s.email }} — {{ s.status }}
+                            {{ s.email }}
+                            <span class="text-muted ms-1">{{ s.timestamp[:10] if s.timestamp else '' }}</span>
+                            — {{ s.status }}
                         </small>
                     </div>
                     {% endfor %}
                 </div>
             </div>
         </div>
+        <a href="{{ url_for('export_sent_log') }}" class="btn btn-outline-success w-100 mt-2">
+            <i class="bi bi-file-earmark-excel"></i> 导出发送记录 Excel
+        </a>
         {% endif %}
     </div>
 
@@ -98,6 +150,7 @@
                 <div id="previewContainer">
                     <div class="mb-2">
                         <strong>收件人：</strong> <span id="previewTo">{{ previews[0].email }}</span><br>
+                        <strong>作者名：</strong> <span id="previewAuthor">{{ previews[0].author_name or '未知' }}</span><br>
                         <strong>主　题：</strong> <span id="previewSubject">{{ previews[0].subject }}</span>
                     </div>
                     <div class="email-preview-frame">
@@ -114,6 +167,72 @@
         </div>
     </div>
 </div>
+
+<!-- 编辑收件人 Modal -->
+<div class="modal fade" id="editRecipientModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">编辑收件人</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <form method="POST" action="/send/edit-recipient">
+        <div class="modal-body">
+          <input type="hidden" name="original_email" id="editOriginalEmail">
+          <div class="mb-3">
+            <label class="form-label">邮箱地址</label>
+            <input type="email" class="form-control" name="new_email" id="editNewEmail" required>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">作者姓名</label>
+            <input type="text" class="form-control" name="new_author_name" id="editNewAuthorName">
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+          <button type="submit" class="btn btn-primary">保存</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<!-- 编辑邮件内容 Modal -->
+<div class="modal fade" id="editEmailModal" tabindex="-1">
+  <div class="modal-dialog modal-xl">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">编辑邮件内容</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <form method="POST" action="/send/save-email-override">
+        <div class="modal-body">
+          <input type="hidden" name="email" id="editEmailAddr">
+          <div class="mb-2">
+            <label class="form-label small text-muted">收件人：<span id="editEmailAddrDisplay"></span></label>
+          </div>
+          <div class="row g-2">
+            <div class="col-md-6">
+              <label class="form-label small">HTML 源码</label>
+              <textarea class="form-control font-monospace" name="html_body" id="editEmailHtml"
+                rows="18" style="font-size:11px;resize:vertical"
+                oninput="document.getElementById('editEmailPreview').srcdoc=this.value"></textarea>
+            </div>
+            <div class="col-md-6">
+              <label class="form-label small">实时预览</label>
+              <iframe id="editEmailPreview" style="width:100%;height:400px;border:1px solid #ddd;border-radius:4px;"></iframe>
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+          <button type="submit" class="btn btn-primary">保存修改</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
 {% endblock %}
 
 {% block scripts %}
@@ -137,6 +256,8 @@ items.forEach(item => {
         // 更新预览
         frame.srcdoc = p.html_body;
         toEl.textContent = p.email;
+        const authorEl = document.getElementById('previewAuthor');
+        if (authorEl) authorEl.textContent = p.author_name || '未知';
         subjectEl.textContent = p.subject;
 
         // 高亮
@@ -144,6 +265,80 @@ items.forEach(item => {
         this.classList.add('active');
     });
 });
+
+// 筛选
+document.getElementById('recipientFilter').addEventListener('input', function() {
+    const q = this.value.toLowerCase();
+    document.querySelectorAll('.recipient-item').forEach(item => {
+        const match = item.dataset.name.includes(q) || item.dataset.email.includes(q);
+        item.style.display = match ? '' : 'none';
+    });
+});
+
+// 全选
+document.getElementById('selectAllRecipients').addEventListener('change', function() {
+    document.querySelectorAll('.recipient-item').forEach(item => {
+        if (item.style.display !== 'none') {
+            item.querySelector('.recipient-check').checked = this.checked;
+        }
+    });
+    updateSendCount();
+});
+
+document.querySelectorAll('.recipient-check').forEach(cb => {
+    cb.addEventListener('change', updateSendCount);
+});
+
+function updateSendCount() {
+    const n = document.querySelectorAll('.recipient-check:checked').length;
+    document.getElementById('sendCount').textContent = n;
+    const sc2 = document.getElementById('sendCount2');
+    if (sc2) sc2.textContent = n;
+    document.getElementById('sendBtn').disabled = n === 0;
+}
+
+function prepareSendForm() {
+    const form = document.getElementById('sendForm');
+    form.querySelectorAll('input[name="selected_emails[]"]').forEach(el => el.remove());
+    const checked = document.querySelectorAll('.recipient-check:checked');
+    if (checked.length === 0) { alert('请至少选择一位收件人'); return false; }
+    checked.forEach(cb => {
+        const inp = document.createElement('input');
+        inp.type = 'hidden'; inp.name = 'selected_emails[]'; inp.value = cb.value;
+        form.appendChild(inp);
+    });
+    const n = checked.length;
+    return confirm(`确定向 ${n} 位作者发送邮件吗？`);
+}
+
+function openEditRecipient(email, authorName) {
+    document.getElementById('editOriginalEmail').value = email;
+    document.getElementById('editNewEmail').value = email;
+    document.getElementById('editNewAuthorName').value = authorName;
+    new bootstrap.Modal(document.getElementById('editRecipientModal')).show();
+}
+
+function openEditEmail(idx) {
+    const p = previews[idx];
+    document.getElementById('editEmailAddr').value = p.email;
+    document.getElementById('editEmailAddrDisplay').textContent = p.email;
+    document.getElementById('editEmailHtml').value = p.html_body;
+    document.getElementById('editEmailPreview').srcdoc = p.html_body;
+    new bootstrap.Modal(document.getElementById('editEmailModal')).show();
+}
+
+// 发送记录搜索
+const sentFilter = document.getElementById('sentLogFilter');
+if (sentFilter) {
+    sentFilter.addEventListener('input', function() {
+        const q = this.value.toLowerCase();
+        document.querySelectorAll('.sent-log-item').forEach(item => {
+            item.style.display = item.dataset.email.includes(q) ? '' : 'none';
+        });
+    });
+}
+
+updateSendCount();
 </script>
 {% endif %}
 

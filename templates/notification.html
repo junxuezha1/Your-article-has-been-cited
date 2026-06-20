@@ -6,46 +6,95 @@
         body {
             font-family: "Microsoft YaHei", "SimSun", Arial, sans-serif;
             color: #333;
-            line-height: 1.8;
+            line-height: 1.9;
             max-width: 680px;
             margin: 0 auto;
-            padding: 20px;
+            padding: 30px 24px;
+            background: #fff;
         }
         .header {
-            border-bottom: 2px solid #1a5276;
-            padding-bottom: 12px;
-            margin-bottom: 20px;
+            text-align: center;
+            border-bottom: 2px solid {{ journal_theme_color|default('#1a5276') }};
+            padding-bottom: 16px;
+            margin-bottom: 28px;
         }
         .header h2 {
-            color: #1a5276;
+            color: {{ journal_theme_color|default('#1a5276') }};
             margin: 0;
-            font-size: 18px;
+            font-size: 20px;
+            letter-spacing: 1px;
+        }
+        p {
+            text-indent: 2em;
+            margin: 0 0 12px 0;
+        }
+        .greeting {
+            text-indent: 0;
+            margin-bottom: 16px;
         }
         .citation-block {
-            background: #f8f9fa;
-            border-left: 4px solid #1a5276;
-            padding: 12px 16px;
-            margin: 12px 0;
+            background: {{ journal_theme_bg|default('#f4f7fb') }};
+            border-left: 4px solid {{ journal_theme_color|default('#1a5276') }};
+            padding: 14px 18px;
+            margin: 16px 0;
             font-size: 14px;
+            border-radius: 0 4px 4px 0;
         }
         .citation-block .label {
             color: #666;
             font-size: 12px;
+            margin-bottom: 4px;
         }
         .citation-block .value {
-            color: #222;
+            color: #1a1a1a;
             font-weight: bold;
+            font-size: 15px;
+            margin-bottom: 2px;
         }
-        .doi-link {
-            color: #1a5276;
-            text-decoration: none;
+        .citation-block .sub-value {
+            color: #555;
+            font-size: 13px;
+            font-weight: normal;
+            margin-bottom: 0;
+        }
+        .cited-item {
+            margin-top: 8px;
+            padding-top: 8px;
+            border-top: 1px dashed #d0d8e8;
+        }
+        .cited-item:first-of-type {
+            margin-top: 0;
+            padding-top: 0;
+            border-top: none;
+        }
+        .divider {
+            border: none;
+            border-top: 1px solid #e0e0e0;
+            margin: 10px 0;
+        }
+        .closing {
+            margin-top: 28px;
+        }
+        .salutation {
+            margin-top: 24px;
+            margin-bottom: 0;
+        }
+        .salutation-reply {
+            text-indent: 0;
+            margin-bottom: 0;
+        }
+        .signature {
+            margin-top: 20px;
+            text-align: right;
+            line-height: 1.7;
         }
         .footer {
-            margin-top: 30px;
+            margin-top: 32px;
             padding-top: 12px;
             border-top: 1px solid #ddd;
-            font-size: 12px;
-            color: #888;
+            font-size: 11px;
+            color: #aaa;
+            text-align: center;
         }
     </style>
 </head>
@@ -54,55 +103,51 @@
         <h2>《{{ journal_name }}》引用通知</h2>
     </div>
 
-    <p>{{ author_name }} 老师/教授，您好！</p>
+    <p class="greeting">{% if author_name %}{{ author_name }} 教授{% else %}尊敬的学者{% endif %}，您好！</p>
 
     <p>
-        我们是《{{ journal_name }}》（{{ journal_name_en }}）编辑部。
-        非常荣幸地通知您，您的学术成果在本刊近期发表的文章中被引用。
-        具体引用信息如下：
+        我们是《{{ journal_name }}》（{{ journal_name_en }}）编辑部。{% if journal_intro %}{{ journal_intro }}{% endif %}非常荣幸地通知您，您的学术成果在本刊近期发表的文章中被引用，具体信息如下：
     </p>
 
-    {% for citation in citations %}
+    {% for citing_title, group in citations | groupby('citing_paper_title') %}
+    {% set group_list = group | list %}
     <div class="citation-block">
-        <p>
-            <span class="label">您被引用的文章：</span><br>
-            <span class="value">{{ citation.cited_paper_title }}</span>
-        </p>
-        <p>
-            <span class="label">引用该文献的本刊文章：</span><br>
-            <span class="value">{{ citation.citing_paper_title }}</span>
-        </p>
-        {% if citation.cited_paper_doi and citation.cited_paper_doi != 'nan' %}
-        <p>
-            <span class="label">DOI：</span>
-            <a href="https://doi.org/{{ citation.cited_paper_doi }}" class="doi-link">
-                {{ citation.cited_paper_doi }}
-            </a>
-        </p>
+        <div class="label">引用该文献的本刊文章：</div>
+        <div class="value">{{ citing_title or '（未知标题）' }}</div>
+        {% if group_list[0].citing_paper_authors %}
+        <div class="sub-value">{{ group_list[0].citing_paper_authors }}</div>
         {% endif %}
+
+        <hr class="divider">
+
+        <div class="label">引用了您的以下文章：</div>
+        {% for citation in group_list %}
+        <div class="cited-item">
+            <div class="value">{{ citation.cited_paper_title }}</div>
+            {% if citation.cited_paper_authors %}
+            <div class="sub-value">{{ citation.cited_paper_authors }}</div>
+            {% endif %}
+        </div>
+        {% endfor %}
     </div>
     {% endfor %}
 
-    <p>
-        感谢您的研究成果对相关学术领域的贡献。如您希望进一步了解引用详情，
-        欢迎访问本刊官方网站{% if journal_website %}（<a href="{{ journal_website }}">{{ journal_website }}</a>）{% endif %}查阅全文。
+    <p class="closing">
+        感谢您的研究成果对相关学术领域的贡献。如您希望进一步了解引用详情，欢迎访问本刊官方网站{% if journal_website %}（<a href="{{ journal_website }}" style="color:{{ journal_theme_color|default('#1a5276') }};">{{ journal_website }}</a>）{% endif %}查阅全文。
     </p>
 
-    <p>
-        此致<br>
-        敬礼
-    </p>
+    {% if attachment_note %}<p>{{ attachment_note }}</p>{% endif %}
 
-    <p>
-        《{{ journal_name }}》编辑部<br>
-        {{ year }} 年
-    </p>
+    <p class="salutation">此致</p>
+    <p class="salutation-reply">敬礼！</p>
+
+    <div class="signature">
+        {{ editorial_office }}<br>
+        {{ send_date }}
+    </div>
 
     <div class="footer">
-        <p>
-            本邮件为系统自动发送的学术引用通知，旨在促进学术交流。
-            如有任何疑问，请直接回复本邮件与编辑部联系。
-        </p>
+        本邮件为系统自动发送的学术引用通知，旨在促进学术交流。如有疑问，请直接回复本邮件与编辑部联系。
     </div>
 </body>
 </html>

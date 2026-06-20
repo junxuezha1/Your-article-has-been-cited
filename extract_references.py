@@ -22,8 +22,9 @@ REF_NUM_PATTERN = re.compile(r"^\[(\d+)\]\s*(.+)")
 
 # 提取结构化字段的正则
 DOI_PATTERN = re.compile(r"(?:DOI|doi)[:\s]*?(10\.\d{4,}/[^\s,;]+)")
-YEAR_PATTERN = re.compile(r"[,，.]\s*((?:19|20)\d{2})\s*[,，(（]")
-DOC_TYPE_PATTERN = re.compile(r"\[([JMCDPRSNEBOL/]+)\]")
+# 匹配期刊格式年份（年份后跟逗号/括号），以及书籍/学位论文格式（年份后跟句号）
+YEAR_PATTERN = re.compile(r"[,，]\s*((?:19|20)\d{2})\s*[,，(（.]")
+DOC_TYPE_PATTERN = re.compile(r"\[([A-Z]+(?:/[A-Z]+)?)\]")
 URL_PATTERN = re.compile(r"https?://[^\s,，。]+")
 
 
@@ -69,8 +70,7 @@ def extract_from_word(filepath: str) -> dict:
                 endnotes.append(text)
 
         article_title = _guess_title_from_paragraphs(paragraphs)
-
-        # 策略1：从脚注/尾注中提取参考文献
+        article_authors = _guess_authors_from_paragraphs(paragraphs)
         notes = footnotes + endnotes
         refs_from_notes = _extract_refs_from_notes(notes)
 
@@ -92,6 +92,7 @@ def extract_from_word(filepath: str) -> dict:
         return {
             "source_file": os.path.basename(filepath),
             "article_title": article_title,
+            "article_authors": article_authors,
             "references": references,
             "ref_source": ref_source,
             "error": error,
@@ -101,6 +102,7 @@ def extract_from_word(filepath: str) -> dict:
         return {
             "source_file": os.path.basename(filepath),
             "article_title": "解析失败",
+            "article_authors": "",
             "references": [],
             "ref_source": "",
             "error": str(e),
@@ -129,12 +131,14 @@ def extract_from_pdf(filepath: str) -> dict:
                 full_text += text + "\n"
 
     lines = [line.strip() for line in full_text.split("\n") if line.strip()]
-    article_title = _guess_title_from_paragraphs(lines[:10])
+    article_title = _guess_title_from_paragraphs(lines[:15])
+    article_authors = _guess_authors_from_paragraphs(lines[:20])
     references = _extract_refs_from_body(lines)
 
     return {
         "source_file": os.path.basename(filepath),
         "article_title": article_title,
+        "article_authors": article_authors,
         "references": references,
         "ref_source": "PDF正文",
         "error": None if references else "未找到参考文献章节",
@@ -205,30 +209,61 @@ def _is_end_of_references(line: str) -> bool:
 
 def _guess_title_from_paragraphs(paragraphs: list[str]) -> str:
     """从前几段猜测文章标题"""
+    META_KEYWORDS = ["摘要", "Abstract", "关键词", "基金", "收稿", "作者简介"]
+    SKIP_PATTERNS = re.compile(r"^(DOI|doi|https?://|www\.|issn|ISSN)", re.IGNORECASE)
     title_parts = []
-    for p in paragraphs[:10]:
+    for p in paragraphs[:15]:
         if len(p) < 4:
             continue
-        if any(kw in p for kw in ["摘要", "Abstract", "关键词", "基金", "收稿", "作者简介"]):
+        if SKIP_PATTERNS.match(p):
+            continue
+        if any(kw in p for kw in META_KEYWORDS):
             break
         if 4 < len(p) < 100:
             title_parts.append(p)
-            # 如果看起来像一个完整标题就停
             if len(p) > 10 and not p.endswith(("：", ":", "——")):
                 break
-    return " ".join(title_parts) if title_parts else (paragraphs[0] if paragraphs else "未知标题")
+    return " ".join(title_parts) if title_parts else next(
+        (p for p in paragraphs if p and not any(kw in p for kw in META_KEYWORDS) and not SKIP_PATTERNS.match(p)),
+        "未知标题",
+    )
+
+
+def _guess_authors_from_paragraphs(paragraphs: list[str]) -> str:
+    """从前几段猜测文章作者（标题之后、摘要之前的短段落）"""
+    META_KEYWORDS = ["摘要", "Abstract", "关键词", "基金", "收稿"]
+    SKIP_PATTERNS = re.compile(r"^(DOI|doi|https?://|www\.|issn|ISSN)", re.IGNORECASE)
+    # 找到标题后的段落，作者通常是短段落（< 50字），不含标点句子
+    found_title = False
+    for p in paragraphs[:20]:
+        if len(p) < 4 or SKIP_PATTERNS.match(p):
+            continue
+        if any(kw in p for kw in META_KEYWORDS):
+            break
+        if not found_title:
+            found_title = True
+            continue
+        # 作者行特征：较短、含中文姓名或逗号分隔
+        if 2 < len(p) < 50 and not any(kw in p for kw in META_KEYWORDS):
+            return p
+    return ""
 
 
 def _find_reference_section(paragraphs: list[str]) -> int | None:
     """查找参考文献章节的起始位置"""
+    # 允许 marker 后跟标点，但不允许跟汉字（避免"参考文献综述"误判）
+    trailing_ok = re.compile(r"^[：:。\s]*$")
     for i, p in enumerate(paragraphs):
-        cleaned = p.replace(" ", "").replace("\u3000", "").strip()
+        cleaned = p.replace(" ", "").replace("　", "").strip()
         for marker in REFERENCE_SECTION_MARKERS:
             clean_marker = marker.replace(" ", "")
-            if cleaned == clean_marker or cleaned.startswith(clean_marker):
+            if cleaned == clean_marker:
                 return i
+            if cleaned.startswith(clean_marker):
+                remainder = cleaned[len(clean_marker):]
+                if trailing_ok.match(remainder):
+                    return i
     return None
-
 
 def _collect_reference_entries(lines: list[str]) -> list[str]:
     """收集参考文献条目，处理有编号和无编号两种情况"""
@@ -328,13 +363,13 @@ def _extract_authors_and_title(content: str, result: dict):
 
         # 标题部分：去掉 [J] 等标记
         title = parts[1].strip()
-        title = re.sub(r"\[[JMCDPRSNEBOL/]+\]", "", title).strip()
+        title = DOC_TYPE_PATTERN.sub("", title).strip()
         result["title"] = title
 
         # 期刊名
         if len(parts) >= 3:
             journal = parts[2].strip()
-            journal = re.sub(r"\[[JMCDPRSNEBOL/]+\]", "", journal).strip()
+            journal = DOC_TYPE_PATTERN.sub("", journal).strip()
             journal = re.split(r"[,，]", journal)[0].strip()
             if journal and not re.match(r"^\d{4}", journal):
                 result["journal"] = journal
@@ -343,6 +378,166 @@ def _extract_authors_and_title(content: str, result: dict):
 
 
 # ==================== 处理入口 ====================
+
+# 匹配中文字符（CJK 统一汉字）
+_CJK_RE = re.compile(r'[一-鿿㐀-䶿]')
+
+# 只有中文期刊默认进入邮箱检索，其余类型进入待审核区。
+JOURNAL_DOC_TYPES = {"J", "J/OL"}
+BOOK_DOC_TYPES = {"M", "M/OL"}
+POLICY_DOC_TYPES = {"S", "Z", "G"}
+WEB_NEWS_DOC_TYPES = {"EB/OL", "N", "DB/OL", "CP/CD"}
+ACADEMIC_NON_JOURNAL_DOC_TYPES = {"C", "D", "R", "P"}
+
+# 机构名称特征词（出现则视为无个人作者）
+_ORG_KEYWORDS = [
+    "国务院", "教育部", "人大", "全国", "中共", "中央", "政府", "委员会",
+    "人民法院", "最高法", "法院", "检察院", "公安部", "财政部", "发改委",
+    "国家", "省", "市政府", "人民政府", "办公厅", "新华社", "人民日报",
+    "中国", "联合国", "UNESCO", "WHO", "OECD",
+]
+
+_POLICY_KEYWORDS = [
+    "条例", "办法", "意见", "通知", "决定", "规划", "方案", "纲要",
+    "法律", "法规", "政策", "标准", "规定", "报告", "公报", "白皮书",
+]
+
+_BOOK_PUBLISHER_KEYWORDS = [
+    "出版社", "出版集团", "出版公司", "出版传媒", "书局", "Press",
+    "Publishing", "Publisher",
+]
+
+_BOOK_PLACE_PATTERN = re.compile(
+    r"(北京|上海|天津|重庆|南京|武汉|广州|长沙|杭州|成都|西安|济南|郑州|"
+    r"合肥|福州|南昌|长春|沈阳|哈尔滨|石家庄|太原|兰州|昆明|贵阳|南宁|"
+    r"呼和浩特|乌鲁木齐|海口|银川|拉萨|香港|台北)\s*[:：]"
+)
+
+_JOURNAL_VOLUME_PATTERN = re.compile(
+    r"(?:19|20)\d{2}\s*[,，]\s*\d+\s*(?:\(\d+\)|（\d+）|[,，:：])"
+)
+
+
+def _normalize_doc_type(doc_type: str) -> str:
+    return str(doc_type or "").strip().upper().replace(" ", "")
+
+
+def _has_org_author(authors: str) -> bool:
+    return any(kw in authors for kw in _ORG_KEYWORDS)
+
+
+def _looks_like_book_ref(ref: dict) -> bool:
+    """识别未规范标注为 [M] 但出版形态明显是图书的参考文献。"""
+    doc_type = _normalize_doc_type(ref.get("doc_type", ""))
+    if doc_type in BOOK_DOC_TYPES:
+        return True
+
+    raw = str(ref.get("raw_text", "")).strip()
+    journal = str(ref.get("journal", "")).strip()
+    text = f"{raw} {journal}"
+
+    if re.search(r"\[M(?:/[A-Z]+)?\]", raw, re.IGNORECASE):
+        return True
+    if any(kw in text for kw in _BOOK_PUBLISHER_KEYWORDS):
+        return True
+    if _BOOK_PLACE_PATTERN.search(text) and re.search(r"[:：]\s*[^,，。]*(出版|Press|Publishing)", text, re.IGNORECASE):
+        return True
+    if re.search(r"(第\s*\d+\s*版|主编|译著|译\.)", raw):
+        return True
+
+    return False
+
+
+def _looks_like_policy_ref(ref: dict) -> bool:
+    doc_type = _normalize_doc_type(ref.get("doc_type", ""))
+    if doc_type in POLICY_DOC_TYPES:
+        return True
+
+    authors = str(ref.get("authors", "")).strip()
+    title = str(ref.get("title", "")).strip()
+    raw = str(ref.get("raw_text", "")).strip()
+    text = f"{authors} {title} {raw}"
+
+    if _has_org_author(authors) and any(kw in text for kw in _POLICY_KEYWORDS):
+        return True
+    if re.search(r"(国务院|教育部|中共中央|全国人大|人民政府|办公厅).*(通知|意见|办法|条例|规划|决定|方案)", text):
+        return True
+
+    return False
+
+
+def _looks_like_journal_ref(ref: dict) -> bool:
+    """判断是否可作为中文期刊进入自动邮箱检索。"""
+    doc_type = _normalize_doc_type(ref.get("doc_type", ""))
+    if doc_type in JOURNAL_DOC_TYPES:
+        return not _looks_like_book_ref(ref)
+
+    if doc_type:
+        return False
+
+    raw = str(ref.get("raw_text", "")).strip()
+    journal = str(ref.get("journal", "")).strip()
+
+    if _looks_like_book_ref(ref) or _looks_like_policy_ref(ref):
+        return False
+
+    # 无 [J] 标识时，用期刊常见结构兜底：刊名 + 年份 + 卷(期)/页码。
+    if journal and _JOURNAL_VOLUME_PATTERN.search(raw):
+        return True
+    if re.search(r"(学报|期刊|杂志|研究|论坛|教育|科学|社会科学|Journal|Review|Quarterly)", journal, re.IGNORECASE):
+        if re.search(r"(?:19|20)\d{2}", raw):
+            return True
+
+    return False
+
+
+def _classify_reference(ref: dict) -> str:
+    """返回用于分流和展示的参考文献类别。"""
+    if _is_foreign_ref(ref):
+        return "外文"
+
+    doc_type = _normalize_doc_type(ref.get("doc_type", ""))
+
+    if _looks_like_policy_ref(ref):
+        return "政策/法规"
+    if _looks_like_book_ref(ref):
+        return "书籍"
+    if doc_type in WEB_NEWS_DOC_TYPES:
+        return "网页/新闻"
+    if doc_type in ACADEMIC_NON_JOURNAL_DOC_TYPES:
+        return "专利/会议/学位/报告"
+    if _looks_like_journal_ref(ref):
+        return "期刊"
+
+    authors = str(ref.get("authors", "")).strip()
+    if not authors or authors == "nan" or _has_org_author(authors):
+        return "无个人作者"
+
+    return "其他"
+
+
+def _is_no_author_ref(ref: dict) -> bool:
+    """
+    判断一条参考文献是否应排除出自动邮箱检索。
+    目前仅中文期刊默认进入检索，其他类型进入待审核区。
+    """
+    return _classify_reference(ref) != "期刊"
+
+
+def _is_foreign_ref(ref: dict) -> bool:
+    """
+    判断是否为外文文献：作者和标题均不含中文字符，且有实际内容。
+    外文文献不进入自动检索，归入待审核区供人工选择。
+    """
+    authors = str(ref.get("authors", "")).strip()
+    title = str(ref.get("title", "")).strip()
+    raw = str(ref.get("raw_text", "")).strip()
+    # 有中文字符 → 中文文献
+    if _CJK_RE.search(authors) or _CJK_RE.search(title):
+        return False
+    # 无中文且有实质内容 → 外文文献
+    return bool(authors or title or raw)
+
 
 WORD_EXTENSIONS = {".doc", ".docx"}
 
@@ -401,30 +596,68 @@ def process_input_directory(input_dir: str) -> list[dict]:
     return results
 
 
-def save_references_csv(results: list[dict], output_path: str):
-    """将提取结果保存为 CSV"""
-    os.makedirs(os.path.dirname(output_path), exist_ok=True)
+def split_reference_rows(rows: list[dict]) -> tuple[list[dict], list[dict]]:
+    """Split normalized reference rows into papers and non-notification references."""
+    papers = []
+    other = []
+    for row in rows:
+        ref_category = _classify_reference(row)
+        row["ref_lang"] = "外文" if _is_foreign_ref(row) else "中文"
+        row["ref_category"] = ref_category
+        if ref_category == "期刊":
+            papers.append(row)
+        else:
+            other.append(row)
+    return papers, other
+
+
+def save_references_csv(results: list[dict], output_path: str, no_author_path: str = None):
+    """
+    将提取结果保存为 CSV，同时按有无个人作者分流：
+    - output_path：有作者的参考文献（进入检索阶段）
+    - no_author_path：无作者/机构类文献（供人工审核后决定是否加入检索）
+    """
+    dir_name = os.path.dirname(output_path)
+    if dir_name:
+        os.makedirs(dir_name, exist_ok=True)
 
     fieldnames = [
-        "source_file", "article_title",
+        "source_file", "article_title", "article_authors",
         "ref_number", "authors", "title", "year", "journal", "doi",
-        "doc_type", "raw_text",
+        "doc_type", "ref_lang", "ref_category", "raw_text",
     ]
 
     rows = []
+
     for result in results:
         for ref in result["references"]:
-            rows.append({
+            row = {
                 "source_file": result["source_file"],
                 "article_title": result["article_title"],
-                **{k: ref.get(k, "") for k in fieldnames if k not in ("source_file", "article_title")},
-            })
+                "article_authors": result.get("article_authors", ""),
+                **{k: ref.get(k, "") for k in fieldnames
+                   if k not in ("source_file", "article_title", "article_authors", "ref_lang", "ref_category")},
+            }
+            rows.append(row)
 
-    with open(output_path, "w", encoding="utf-8-sig", newline="") as f:
-        writer = csv.DictWriter(f, fieldnames=fieldnames)
-        writer.writeheader()
-        writer.writerows(rows)
+    with_author, no_author = split_reference_rows(rows)
 
-    print(f"\n参考文献数据已保存到: {output_path}")
-    print(f"共 {len(rows)} 条记录，来自 {len(results)} 篇文章")
-    return rows
+    def _write(path, rows):
+        with open(path, "w", encoding="utf-8-sig", newline="") as f:
+            writer = csv.DictWriter(f, fieldnames=fieldnames)
+            writer.writeheader()
+            writer.writerows(rows)
+
+    _write(output_path, with_author)
+    print(f"\n有作者参考文献已保存: {output_path}（{len(with_author)} 条）")
+
+    if no_author_path:
+        no_author_dir = os.path.dirname(no_author_path)
+        if no_author_dir:
+            os.makedirs(no_author_dir, exist_ok=True)
+        _write(no_author_path, no_author)
+        print(f"无作者参考文献已保存: {no_author_path}（{len(no_author)} 条，待人工审核）")
+
+    print(f"合计 {len(with_author) + len(no_author)} 条，来自 {len(results)} 篇文章")
+    return with_author, no_author
+

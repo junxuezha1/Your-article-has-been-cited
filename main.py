@@ -30,10 +30,20 @@ def load_config(config_path: str = "config.yaml") -> dict:
         return yaml.safe_load(f)
 
 
-def cmd_web():
+def cmd_web(open_browser: bool = False):
     """启动 Web 界面"""
+    import threading
+    import webbrowser
     from app import app
-    app.run(debug=True, host="127.0.0.1", port=5000)
+
+    if open_browser:
+        def _open():
+            import time
+            time.sleep(1.5)
+            webbrowser.open("http://127.0.0.1:5000")
+        threading.Thread(target=_open, daemon=True).start()
+
+    app.run(debug=False, host="127.0.0.1", port=5000)
 
 
 def cmd_extract(config: dict):
@@ -118,19 +128,20 @@ def cmd_send(config: dict):
         config["smtp"],
         config["email"],
         paths["sent_log_csv"],
+        input_dir=paths.get("input_dir", "data/input"),
     )
 
 
 def main():
     if len(sys.argv) < 2:
-        # 默认启动 Web 界面
-        cmd_web()
+        # 默认启动 Web 界面，自动打开浏览器
+        cmd_web(open_browser=True)
         return
 
     command = sys.argv[1].lower()
 
     if command == "web":
-        cmd_web()
+        cmd_web(open_browser=True)
         return
 
     config = load_config()

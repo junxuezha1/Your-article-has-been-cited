@@ -7,6 +7,17 @@
     <p>上传本刊文章，自动提取其中的参考文献列表</p>
 </div>
 
+{% if task_status.running and task_status.stage == '参考文献提取' %}
+<div class="task-running mb-3">
+    <span class="spinner-border spinner-border-sm text-warning"></span>
+    <strong>参考文献提取正在运行中...</strong>
+    <span class="text-muted ms-2">{{ task_status.progress }}</span>
+    <button class="btn btn-sm btn-outline-secondary ms-auto" onclick="location.reload()">
+        <i class="bi bi-arrow-clockwise"></i> 刷新
+    </button>
+</div>
+{% endif %}
+
 <div class="row g-3">
     <!-- 左侧：上传区域 -->
     <div class="col-md-4">
@@ -72,33 +83,57 @@
     <!-- 右侧：提取结果 -->
     <div class="col-md-8">
         <div class="card">
-            <div class="card-header">
-                <i class="bi bi-table"></i> 提取结果
-                <span class="badge bg-secondary float-end">{{ references|length }} 条</span>
+            <div class="card-header d-flex align-items-center justify-content-between">
+                <div>
+                    <i class="bi bi-table"></i> 论文
+                    <span class="badge bg-secondary ms-1">{{ references|length }} 条</span>
+                    <small class="text-muted ms-2">进入邮箱检索和邮件发送流程</small>
+                </div>
+                <input type="text" id="refFilter" placeholder="搜索标题/作者..." class="form-control form-control-sm" style="width:200px">
             </div>
             <div class="card-body p-0">
                 {% if references %}
+                <!-- 批量操作工具栏 -->
+                <div id="refBatchBar" class="d-none px-3 py-2 bg-light border-bottom d-flex align-items-center gap-2">
+                    <span id="refSelectedCount" class="text-muted small">已选 0 条</span>
+                    <form method="POST" action="{{ url_for('delete_refs_batch') }}" id="refBatchForm">
+                        <button type="submit" class="btn btn-sm btn-danger" onclick="return fillBatchIndices('refBatchForm','refSelectedCount') && confirm('确定删除所选？')">
+                            <i class="bi bi-trash"></i> 删除所选
+                        </button>
+                    </form>
+                </div>
                 <div class="table-responsive">
-                    <table class="table table-hover table-sm mb-0">
+                    <table class="table table-hover table-sm mb-0" id="refTable">
                         <thead>
                             <tr>
+                                <th style="width:36px"><input type="checkbox" id="selectAllRefs"></th>
                                 <th style="width:40px">#</th>
                                 <th>来源文章</th>
                                 <th>参考文献标题</th>
                                 <th>作者</th>
                                 <th>年份</th>
                                 <th>DOI</th>
+                                <th style="width:50px"></th>
                             </tr>
                         </thead>
                         <tbody>
                             {% for ref in references %}
                             <tr>
+                                <td><input type="checkbox" class="row-check" value="{{ loop.index0 }}"></td>
                                 <td>{{ ref.ref_number if ref.ref_number and ref.ref_number == ref.ref_number else loop.index }}</td>
                                 <td><small class="text-muted">{{ ref.source_file or '' }}</small></td>
                                 <td>{{ (ref.title|string)[:60] }}{{ '...' if (ref.title|string)|length > 60 }}</td>
                                 <td><small>{{ (ref.authors|string)[:30] }}{{ '...' if (ref.authors|string)|length > 30 }}</small></td>
                                 <td>{{ ref.year if ref.year and ref.year == ref.year else '' }}</td>
                                 <td><small>{{ (ref.doi|string)[:25] if ref.doi and ref.doi == ref.doi else '-' }}</small></td>
+                                <td>
+                                    <form method="POST" action="{{ url_for('delete_ref_row') }}" onsubmit="return confirm('确定删除？')">
+                                        <input type="hidden" name="idx" value="{{ loop.index0 }}">
+                                        <button type="submit" class="btn btn-sm btn-outline-danger py-0 px-1">
+                                            <i class="bi bi-trash"></i>
+                                        </button>
+                                    </form>
+                                </td>
                             </tr>
                             {% endfor %}
                         </tbody>
@@ -123,6 +158,220 @@
             </a>
         </div>
         {% endif %}
+
+        <!-- 其他文献区 -->
+        {% if no_author_refs %}
+        {% set foreign_count = no_author_refs | selectattr('ref_lang', 'equalto', '外文') | list | length %}
+        {% set book_count = no_author_refs | selectattr('ref_category', 'equalto', '书籍') | list | length %}
+        {% set policy_count = no_author_refs | selectattr('ref_category', 'equalto', '政策/法规') | list | length %}
+        {% set other_count = no_author_refs | length - foreign_count - book_count - policy_count %}
+        <div class="card mt-4">
+            <div class="card-header d-flex align-items-center justify-content-between bg-warning bg-opacity-10">
+                <div>
+                    <i class="bi bi-exclamation-triangle text-warning"></i>
+                    <strong>其他</strong>
+                    <span class="badge bg-warning text-dark ms-1">{{ no_author_refs|length }} 条</span>
+                    {% if foreign_count %}<span class="badge bg-info text-dark ms-1">外文 {{ foreign_count }}</span>{% endif %}
+                    {% if book_count %}<span class="badge bg-secondary ms-1">书籍 {{ book_count }}</span>{% endif %}
+                    {% if policy_count %}<span class="badge bg-dark ms-1">政策/法规 {{ policy_count }}</span>{% endif %}
+                    {% if other_count %}<span class="badge bg-secondary ms-1">其他 {{ other_count }}</span>{% endif %}
+                    <small class="text-muted ms-2">不进入邮箱检索，仅用于展示和下载。</small>
+                </div>
+                <div class="d-flex gap-2 align-items-center">
+                    <input type="text" id="noAuthorFilter" placeholder="搜索..." class="form-control form-control-sm" style="width:160px">
+                    <a href="{{ url_for('download_file', filename='other_references.csv') }}" class="btn btn-sm btn-outline-secondary">
+                        <i class="bi bi-download"></i>
+                    </a>
+                </div>
+            </div>
+            <div class="card-body p-0">
+                <!-- 批量操作工具栏 -->
+                <div id="noAuthorBatchBar" class="d-none px-3 py-2 bg-light border-bottom d-flex align-items-center gap-2">
+                    <span id="noAuthorSelectedCount" class="text-muted small">已选 0 条</span>
+                    <form method="POST" action="{{ url_for('promote_no_author_batch') }}" id="noAuthorPromoteForm">
+                        <button type="submit" class="btn btn-sm btn-success"
+                            onclick="return fillNoAuthorIndices('noAuthorPromoteForm') && confirm('确定将所选加入检索列表？')">
+                            <i class="bi bi-arrow-up-circle"></i> 转为论文
+                        </button>
+                    </form>
+                    <form method="POST" action="{{ url_for('delete_no_author_batch') }}" id="noAuthorDeleteForm">
+                        <button type="submit" class="btn btn-sm btn-danger"
+                            onclick="return fillNoAuthorIndices('noAuthorDeleteForm') && confirm('确定删除所选？')">
+                            <i class="bi bi-trash"></i> 删除所选
+                        </button>
+                    </form>
+                </div>
+                <div class="table-responsive">
+                    <table class="table table-hover table-sm mb-0" id="noAuthorTable">
+                        <thead>
+                            <tr>
+                                <th style="width:36px"><input type="checkbox" id="selectAllNoAuthor"></th>
+                                <th style="width:40px">#</th>
+                                <th>来源文章</th>
+                                <th>标题</th>
+                                <th>语言</th>
+                                <th>分类</th>
+                                <th>标识</th>
+                                <th>年份</th>
+                                <th style="width:90px"></th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for ref in no_author_refs %}
+                            <tr>
+                                <td><input type="checkbox" class="no-author-check" value="{{ loop.index0 }}"></td>
+                                <td>{{ loop.index }}</td>
+                                <td><small class="text-muted">{{ ref.source_file or '' }}</small></td>
+                                <td>{{ (ref.title|string)[:60] }}{{ '...' if (ref.title|string)|length > 60 }}
+                                    {% if not ref.title or ref.title == 'nan' %}
+                                    <small class="text-muted">{{ (ref.raw_text|string)[:60] }}</small>
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    {% if ref.ref_lang == '外文' %}
+                                    <span class="badge bg-info text-dark">外文</span>
+                                    {% else %}
+                                    <span class="badge bg-light text-dark border">中文</span>
+                                    {% endif %}
+                                </td>
+                                <td><span class="badge bg-warning text-dark">{{ ref.ref_category if ref.ref_category and ref.ref_category != 'nan' else '待审核' }}</span></td>
+                                <td><span class="badge bg-secondary">{{ ref.doc_type if ref.doc_type and ref.doc_type != 'nan' else '—' }}</span></td>
+                                <td>{{ ref.year if ref.year and ref.year != 'nan' else '' }}</td>
+                                <td class="d-flex gap-1">
+                                    <form method="POST" action="{{ url_for('promote_no_author') }}">
+                                        <input type="hidden" name="idx" value="{{ loop.index0 }}">
+                                        <button type="submit" class="btn btn-sm btn-outline-success py-0 px-1" title="转为论文">
+                                            <i class="bi bi-arrow-up-circle"></i>
+                                        </button>
+                                    </form>
+                                    <form method="POST" action="{{ url_for('delete_no_author_row') }}" onsubmit="return confirm('确定删除？')">
+                                        <input type="hidden" name="idx" value="{{ loop.index0 }}">
+                                        <button type="submit" class="btn btn-sm btn-outline-danger py-0 px-1" title="删除">
+                                            <i class="bi bi-trash"></i>
+                                        </button>
+                                    </form>
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+        {% else %}
+        <div class="card mt-4">
+            <div class="card-header bg-warning bg-opacity-10">
+                <i class="bi bi-archive text-warning"></i>
+                <strong>其他</strong>
+                <span class="badge bg-warning text-dark ms-1">0 条</span>
+                <small class="text-muted ms-2">不进入邮箱检索，仅用于展示和下载。</small>
+            </div>
+            <div class="card-body text-center text-muted py-4">
+                暂无其他文献。
+            </div>
+        </div>
+        {% endif %}
     </div>
 </div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+// 有作者表格筛选
+const refFilter = document.getElementById('refFilter');
+if (refFilter) {
+    refFilter.addEventListener('input', function() {
+        const q = this.value.toLowerCase();
+        document.querySelectorAll('#refTable tbody tr').forEach(tr => {
+            tr.style.display = tr.textContent.toLowerCase().includes(q) ? '' : 'none';
+        });
+    });
+}
+
+// 无作者表格筛选
+const noAuthorFilter = document.getElementById('noAuthorFilter');
+if (noAuthorFilter) {
+    noAuthorFilter.addEventListener('input', function() {
+        const q = this.value.toLowerCase();
+        document.querySelectorAll('#noAuthorTable tbody tr').forEach(tr => {
+            tr.style.display = tr.textContent.toLowerCase().includes(q) ? '' : 'none';
+        });
+    });
+}
+
+// 有作者表格全选
+const selectAllRefs = document.getElementById('selectAllRefs');
+if (selectAllRefs) {
+    selectAllRefs.addEventListener('change', function() {
+        document.querySelectorAll('#refTable .row-check').forEach(cb => {
+            if (cb.closest('tr').style.display !== 'none') cb.checked = this.checked;
+        });
+        updateRefBar();
+    });
+    document.getElementById('refTable').addEventListener('change', function(e) {
+        if (e.target.classList.contains('row-check')) updateRefBar();
+    });
+}
+function updateRefBar() {
+    const checked = document.querySelectorAll('#refTable .row-check:checked');
+    const bar = document.getElementById('refBatchBar');
+    document.getElementById('refSelectedCount').textContent = `已选 ${checked.length} 条`;
+    bar.classList.toggle('d-none', checked.length === 0);
+}
+
+// 无作者表格全选
+const selectAllNoAuthor = document.getElementById('selectAllNoAuthor');
+if (selectAllNoAuthor) {
+    selectAllNoAuthor.addEventListener('change', function() {
+        document.querySelectorAll('#noAuthorTable .no-author-check').forEach(cb => {
+            if (cb.closest('tr').style.display !== 'none') cb.checked = this.checked;
+        });
+        updateNoAuthorBar();
+    });
+    document.getElementById('noAuthorTable').addEventListener('change', function(e) {
+        if (e.target.classList.contains('no-author-check')) updateNoAuthorBar();
+    });
+}
+function updateNoAuthorBar() {
+    const checked = document.querySelectorAll('#noAuthorTable .no-author-check:checked');
+    const bar = document.getElementById('noAuthorBatchBar');
+    document.getElementById('noAuthorSelectedCount').textContent = `已选 ${checked.length} 条`;
+    bar.classList.toggle('d-none', checked.length === 0);
+}
+
+function fillBatchIndices(formId, countId) {
+    const form = document.getElementById(formId);
+    form.querySelectorAll('input[name="indices[]"]').forEach(el => el.remove());
+    const checked = document.querySelectorAll('#refTable .row-check:checked');
+    if (checked.length === 0) { alert('请先选择要删除的条目'); return false; }
+    checked.forEach(cb => {
+        const inp = document.createElement('input');
+        inp.type = 'hidden'; inp.name = 'indices[]'; inp.value = cb.value;
+        form.appendChild(inp);
+    });
+    return true;
+}
+
+function fillNoAuthorIndices(formId) {
+    const form = document.getElementById(formId);
+    form.querySelectorAll('input[name="indices[]"]').forEach(el => el.remove());
+    const checked = document.querySelectorAll('#noAuthorTable .no-author-check:checked');
+    if (checked.length === 0) { alert('请先选择条目'); return false; }
+    checked.forEach(cb => {
+        const inp = document.createElement('input');
+        inp.type = 'hidden'; inp.name = 'indices[]'; inp.value = cb.value;
+        form.appendChild(inp);
+    });
+    return true;
+}
+</script>
+{% if task_status.running and task_status.stage == '参考文献提取' %}
+<script>
+setInterval(function() {
+    fetch('/api/task-status')
+        .then(r => r.json())
+        .then(data => { if (!data.running) location.reload(); });
+}, 3000);
+</script>
+{% endif %}
 {% endblock %}

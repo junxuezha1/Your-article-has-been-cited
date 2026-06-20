@@ -1,10 +1,10 @@
-{% extends "base.html" %}
+﻿{% extends "base.html" %}
 {% block title %}系统配置{% endblock %}
 
 {% block content %}
 <div class="page-header">
     <h1><i class="bi bi-gear"></i> 系统配置</h1>
-    <p>配置 SMTP 邮件发送和学术 API 参数</p>
+    <p>配置 SMTP 邮件发送和本地作者库参数</p>
 </div>
 
 <form method="POST" action="{{ url_for('config_page') }}">
@@ -91,17 +91,20 @@
         </div>
     </div>
 
-    <!-- CrossRef API -->
+    <!-- 本地作者库 -->
     <div class="card mb-3">
-        <div class="card-header"><i class="bi bi-search"></i> CrossRef API 配置</div>
+        <div class="card-header"><i class="bi bi-database"></i> 本地作者库配置</div>
         <div class="card-body">
+            <div class="alert alert-light small mb-3">
+                系统当前通过本地 Excel 作者库检索邮箱，不再依赖外部学术 API。
+            </div>
             <div class="row g-3">
                 <div class="col-md-6">
-                    <label class="form-label">联系邮箱（用于 Polite Pool，加快请求速度）</label>
-                    <input type="email" class="form-control" name="crossref_mailto"
-                        value="{{ config.get('crossref', {}).get('mailto', '') }}"
-                        placeholder="your_email@example.com">
-                    <div class="form-text">填写后 CrossRef API 请求速度会更快（免费，无需注册）</div>
+                    <label class="form-label">作者库目录</label>
+                    <input type="text" class="form-control" name="local_db_dir"
+                        value="{{ config.get('paths', {}).get('local_db_dir', '数据') }}"
+                        placeholder="数据">
+                    <div class="form-text">填写包含本地 `.xls` 作者库文件的目录名或路径。</div>
                 </div>
             </div>
         </div>
@@ -141,3 +144,4 @@ document.getElementById('testSmtpBtn').addEventListener('click', function() {
 });
 </script>
 {% endblock %}
+
