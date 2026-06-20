@@ -24,12 +24,24 @@ from lookup_authors import lookup_emails, save_results, merge_manual_supplement
 from send_emails import load_sent_log, prepare_email_data, render_email, send_emails
 
 BASE_DIR = Path(__file__).parent
-CONFIG_PATH = BASE_DIR / "config.yaml"
-DATA_DIR = BASE_DIR / "data"
+RUNTIME_DIR = Path(os.environ.get("CITATION_NOTIFIER_HOME", BASE_DIR)).expanduser()
+CONFIG_PATH = RUNTIME_DIR / "config.yaml"
+DATA_DIR = RUNTIME_DIR / "data"
 INPUT_DIR = DATA_DIR / "input"
 PREVIEW_DIR = DATA_DIR / "preview"
 
 ALLOWED_EXTENSIONS = {".doc", ".docx", ".pdf"}
+
+DEFAULT_PRODUCT = {
+    "name": "{{MoreYield}}",
+    "id": "{{King}}",
+    "version": "{{VERSION}}",
+    "logo": "assets/logo.png",
+    "logo_light": "assets/logo-light.png",
+    "favicon": "assets/favicon.ico",
+    "app_icon": "assets/app.ico",
+    "support": "{{my18874068595@gmail.com}}",
+}
 
 JOURNALS = {
     "innovation": {
@@ -76,15 +88,32 @@ task_status = {
 
 
 def load_config() -> dict:
-    if CONFIG_PATH.exists():
-        with open(CONFIG_PATH, "r", encoding="utf-8") as f:
+    config_path = runtime_path("config.yaml")
+    if config_path.exists():
+        with open(config_path, "r", encoding="utf-8") as f:
             return yaml.safe_load(f) or {}
     return {}
 
 
 def save_config(config: dict):
-    with open(CONFIG_PATH, "w", encoding="utf-8") as f:
+    config_path = runtime_path("config.yaml")
+    config_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(config_path, "w", encoding="utf-8") as f:
         yaml.dump(config, f, allow_unicode=True, default_flow_style=False, sort_keys=False)
+
+
+def runtime_path(relative_path: str | Path) -> Path:
+    path = Path(relative_path)
+    if path.is_absolute():
+        return path
+    return RUNTIME_DIR / path
+
+
+def app_path(relative_path: str | Path) -> Path:
+    path = Path(relative_path)
+    if path.is_absolute():
+        return path
+    return BASE_DIR / path
 
 
 def get_active_journal_id() -> str:
@@ -137,23 +166,39 @@ def get_runtime_config() -> dict:
     }
     config.setdefault("smtp", {})
     config["smtp"]["sender_name"] = journal["sender_name"]
+    config["product"] = get_product_config(config)
     return config
+
+
+def get_product_config(config: dict | None = None) -> dict:
+    if config is None:
+        config = load_config()
+    product = dict(DEFAULT_PRODUCT)
+    product.update(config.get("product", {}) or {})
+    return product
+
+
+def asset_url(path: str) -> str:
+    normalized = str(path or "").replace("\\", "/").lstrip("/")
+    if normalized.startswith("assets/"):
+        normalized = normalized[len("assets/"):]
+    return url_for("brand_asset", filename=normalized)
 
 
 def active_path(path_key: str) -> Path:
     config = get_runtime_config()
-    return BASE_DIR / config["paths"][path_key]
+    return runtime_path(config["paths"][path_key])
 
 
 def ensure_journal_dirs(paths: dict):
     for key in ("input_dir", "preview_dir"):
-        (BASE_DIR / paths[key]).mkdir(parents=True, exist_ok=True)
+        runtime_path(paths[key]).mkdir(parents=True, exist_ok=True)
 
 
 def split_existing_references(paths: dict):
     """Normalize old mixed reference files into papers and other references."""
-    ref_csv = BASE_DIR / paths["references_csv"]
-    other_csv = BASE_DIR / paths["other_references_csv"]
+    ref_csv = runtime_path(paths["references_csv"])
+    other_csv = runtime_path(paths["other_references_csv"])
     if not ref_csv.exists():
         return
 
@@ -227,7 +272,14 @@ def inject_journal_context():
         "journals": JOURNALS,
         "current_journal": current,
         "journal_url": journal_url,
+        "product": get_product_config(),
+        "asset_url": asset_url,
     }
+
+
+@app.route("/assets/<path:filename>")
+def brand_asset(filename):
+    return send_from_directory(str(BASE_DIR / "assets"), filename)
 
 
 def get_data_stats() -> dict:
@@ -242,7 +294,7 @@ def get_data_stats() -> dict:
 
     config = get_runtime_config()
     paths = config.get("paths", {})
-    input_dir = BASE_DIR / paths["input_dir"]
+    input_dir = runtime_path(paths["input_dir"])
 
     # 输入文件数
     if input_dir.exists():
@@ -252,7 +304,7 @@ def get_data_stats() -> dict:
         ])
 
     # 参考文献数
-    ref_csv = BASE_DIR / paths.get("references_csv", "data/references.csv")
+    ref_csv = runtime_path(paths.get("references_csv", "data/references.csv"))
     if ref_csv.exists():
         try:
             df = pd.read_csv(ref_csv, encoding="utf-8-sig").fillna("")
@@ -261,7 +313,7 @@ def get_data_stats() -> dict:
             pass
 
     # 邮箱检索结果
-    emails_csv = BASE_DIR / paths.get("authors_emails_csv", "data/authors_emails.csv")
+    emails_csv = runtime_path(paths.get("authors_emails_csv", "data/authors_emails.csv"))
     if emails_csv.exists():
         try:
             df = pd.read_csv(emails_csv, encoding="utf-8-sig").fillna("")
@@ -269,7 +321,7 @@ def get_data_stats() -> dict:
         except Exception:
             pass
 
-    failed_csv = BASE_DIR / paths.get("failed_lookup_csv", "data/failed_lookup.csv")
+    failed_csv = runtime_path(paths.get("failed_lookup_csv", "data/failed_lookup.csv"))
     if failed_csv.exists():
         try:
             df = pd.read_csv(failed_csv, encoding="utf-8-sig").fillna("")
@@ -278,7 +330,7 @@ def get_data_stats() -> dict:
             pass
 
     # 已发送
-    sent_csv = BASE_DIR / paths.get("sent_log_csv", "data/sent_log.csv")
+    sent_csv = runtime_path(paths.get("sent_log_csv", "data/sent_log.csv"))
     if sent_csv.exists():
         try:
             df = load_sent_log(str(sent_csv))
@@ -360,7 +412,7 @@ def test_smtp():
 def extract_page():
     config = get_runtime_config()
     paths = config.get("paths", {})
-    input_dir = BASE_DIR / paths["input_dir"]
+    input_dir = runtime_path(paths["input_dir"])
     ensure_journal_dirs(paths)
     split_existing_references(paths)
 
@@ -371,7 +423,7 @@ def extract_page():
                 size_kb = f.stat().st_size / 1024
                 files.append({"name": f.name, "size": f"{size_kb:.1f} KB", "type": f.suffix})
 
-    ref_csv = BASE_DIR / paths.get("references_csv", "data/references.csv")
+    ref_csv = runtime_path(paths.get("references_csv", "data/references.csv"))
     references = []
     if ref_csv.exists():
         try:
@@ -379,7 +431,7 @@ def extract_page():
         except Exception:
             pass
 
-    no_author_csv = BASE_DIR / paths.get("other_references_csv", "data/other_references.csv")
+    no_author_csv = runtime_path(paths.get("other_references_csv", "data/other_references.csv"))
     no_author_refs = []
     if no_author_csv.exists():
         try:
@@ -394,7 +446,7 @@ def extract_page():
 def upload_files():
     config = get_runtime_config()
     paths = config.get("paths", {})
-    input_dir = BASE_DIR / paths["input_dir"]
+    input_dir = runtime_path(paths["input_dir"])
     input_dir.mkdir(parents=True, exist_ok=True)
 
     uploaded = request.files.getlist("files")
@@ -431,9 +483,9 @@ def run_extract():
 
     config = get_runtime_config()
     paths = config.get("paths", {})
-    input_dir = BASE_DIR / paths["input_dir"]
-    ref_csv = str(BASE_DIR / paths.get("references_csv", "data/references.csv"))
-    other_csv = str(BASE_DIR / paths.get("other_references_csv", "data/other_references.csv"))
+    input_dir = runtime_path(paths["input_dir"])
+    ref_csv = str(runtime_path(paths.get("references_csv", "data/references.csv")))
+    other_csv = str(runtime_path(paths.get("other_references_csv", "data/other_references.csv")))
 
     def run_in_background():
         task_status["running"] = True
@@ -473,7 +525,7 @@ def lookup_page():
 
     # 检索结果
     emails_data = []
-    emails_csv = BASE_DIR / paths.get("authors_emails_csv", "data/authors_emails.csv")
+    emails_csv = runtime_path(paths.get("authors_emails_csv", "data/authors_emails.csv"))
     if emails_csv.exists():
         try:
             df = pd.read_csv(emails_csv, encoding="utf-8-sig").fillna("")
@@ -483,7 +535,7 @@ def lookup_page():
 
     # 失败记录
     failed_data = []
-    failed_csv = BASE_DIR / paths.get("failed_lookup_csv", "data/failed_lookup.csv")
+    failed_csv = runtime_path(paths.get("failed_lookup_csv", "data/failed_lookup.csv"))
     if failed_csv.exists():
         try:
             df = pd.read_csv(failed_csv, encoding="utf-8-sig").fillna("")
@@ -492,7 +544,7 @@ def lookup_page():
             pass
 
     # 检查是否有参考文献数据
-    ref_csv = BASE_DIR / paths.get("references_csv", "data/references.csv")
+    ref_csv = runtime_path(paths.get("references_csv", "data/references.csv"))
     has_references = ref_csv.exists()
 
     return render_template(
@@ -513,7 +565,7 @@ def run_lookup():
     config = get_runtime_config()
     paths = config.get("paths", {})
     split_existing_references(paths)
-    ref_csv = str(BASE_DIR / paths.get("references_csv", "data/references.csv"))
+    ref_csv = str(runtime_path(paths.get("references_csv", "data/references.csv")))
 
     if not os.path.exists(ref_csv):
         flash("请先执行第一阶段（提取参考文献）", "warning")
@@ -526,8 +578,8 @@ def run_lookup():
         task_status["log"] = []
         try:
             df = lookup_emails(ref_csv, config)
-            emails_csv = str(BASE_DIR / paths.get("authors_emails_csv", "data/authors_emails.csv"))
-            failed_csv = str(BASE_DIR / paths.get("failed_lookup_csv", "data/failed_lookup.csv"))
+            emails_csv = str(runtime_path(paths.get("authors_emails_csv", "data/authors_emails.csv")))
+            failed_csv = str(runtime_path(paths.get("failed_lookup_csv", "data/failed_lookup.csv")))
             save_results(df, emails_csv, failed_csv)
             task_status["progress"] = "完成"
         except Exception as e:
@@ -553,11 +605,11 @@ def upload_supplement():
         flash("请选择文件", "warning")
         return redirect(url_for("lookup_page"))
 
-    supp_csv = str(BASE_DIR / paths.get("manual_supplement_csv", "data/manual_supplement.csv"))
-    (BASE_DIR / paths["manual_supplement_csv"]).parent.mkdir(parents=True, exist_ok=True)
+    supp_csv = str(runtime_path(paths.get("manual_supplement_csv", "data/manual_supplement.csv")))
+    runtime_path(paths["manual_supplement_csv"]).parent.mkdir(parents=True, exist_ok=True)
     f.save(supp_csv)
 
-    emails_csv = str(BASE_DIR / paths.get("authors_emails_csv", "data/authors_emails.csv"))
+    emails_csv = str(runtime_path(paths.get("authors_emails_csv", "data/authors_emails.csv")))
     merge_manual_supplement(emails_csv, supp_csv)
 
     flash("人工补充数据已合并", "success")
@@ -571,7 +623,7 @@ def send_page():
     config = get_runtime_config()
     paths = config.get("paths", {})
 
-    emails_csv = BASE_DIR / paths.get("authors_emails_csv", "data/authors_emails.csv")
+    emails_csv = runtime_path(paths.get("authors_emails_csv", "data/authors_emails.csv"))
     recipients = []
     if emails_csv.exists():
         try:
@@ -581,11 +633,11 @@ def send_page():
 
     # 生成预览
     previews = []
-    template_file = str(BASE_DIR / config.get("email", {}).get("template_file", "templates/notification.html"))
+    template_file = str(app_path(config.get("email", {}).get("template_file", "templates/notification.html")))
     journal_config = config.get("journal", {})
 
     # 加载邮件内容覆盖
-    overrides_path = BASE_DIR / paths.get("email_overrides_json", "data/email_overrides.json")
+    overrides_path = runtime_path(paths.get("email_overrides_json", "data/email_overrides.json"))
     html_overrides = {}
     if overrides_path.exists():
         try:
@@ -617,7 +669,7 @@ def send_page():
 
     # 已发送记录（每 timestamp+email 只展示一行）
     sent_data = []
-    sent_csv = BASE_DIR / paths.get("sent_log_csv", "data/sent_log.csv")
+    sent_csv = runtime_path(paths.get("sent_log_csv", "data/sent_log.csv"))
     if sent_csv.exists():
         try:
             df = load_sent_log(str(sent_csv))
@@ -647,7 +699,7 @@ def run_send():
     config = get_runtime_config()
     paths = config.get("paths", {})
 
-    emails_csv = str(BASE_DIR / paths.get("authors_emails_csv", "data/authors_emails.csv"))
+    emails_csv = str(runtime_path(paths.get("authors_emails_csv", "data/authors_emails.csv")))
     if not os.path.exists(emails_csv):
         flash("没有可发送的邮箱数据", "warning")
         return redirect(url_for("send_page"))
@@ -665,13 +717,13 @@ def run_send():
             flash("所选收件人无有效数据", "warning")
             return redirect(url_for("send_page"))
 
-    template_file = str(BASE_DIR / config.get("email", {}).get("template_file", "templates/notification.html"))
+    template_file = str(app_path(config.get("email", {}).get("template_file", "templates/notification.html")))
     journal_config = config.get("journal", {})
     smtp_config = config.get("smtp", {})
     email_config = config.get("email", {})
-    sent_log_csv = str(BASE_DIR / paths.get("sent_log_csv", "data/sent_log.csv"))
+    sent_log_csv = str(runtime_path(paths.get("sent_log_csv", "data/sent_log.csv")))
 
-    overrides_path = BASE_DIR / paths.get("email_overrides_json", "data/email_overrides.json")
+    overrides_path = runtime_path(paths.get("email_overrides_json", "data/email_overrides.json"))
     html_overrides = {}
     if overrides_path.exists():
         try:
@@ -688,7 +740,7 @@ def run_send():
                 recipients, template_file, journal_config,
                 smtp_config, email_config, sent_log_csv,
                 html_overrides=html_overrides,
-                input_dir=str(BASE_DIR / paths["input_dir"]),
+                input_dir=str(runtime_path(paths["input_dir"])),
             )
             task_status["progress"] = "完成"
         except Exception as e:
@@ -715,8 +767,8 @@ def promote_no_author():
     """将无作者列表中的条目移入有作者列表（加入检索）"""
     config = get_runtime_config()
     paths = config.get("paths", {})
-    no_author_csv = BASE_DIR / paths.get("other_references_csv", "data/other_references.csv")
-    ref_csv = BASE_DIR / paths.get("references_csv", "data/references.csv")
+    no_author_csv = runtime_path(paths.get("other_references_csv", "data/other_references.csv"))
+    ref_csv = runtime_path(paths.get("references_csv", "data/references.csv"))
     idx = request.form.get("idx", type=int)
 
     if idx is None or not no_author_csv.exists():
@@ -746,8 +798,8 @@ def promote_no_author_batch():
     """批量将无作者条目移入检索列表"""
     config = get_runtime_config()
     paths = config.get("paths", {})
-    no_author_csv = BASE_DIR / paths.get("other_references_csv", "data/other_references.csv")
-    ref_csv = BASE_DIR / paths.get("references_csv", "data/references.csv")
+    no_author_csv = runtime_path(paths.get("other_references_csv", "data/other_references.csv"))
+    ref_csv = runtime_path(paths.get("references_csv", "data/references.csv"))
     indices = request.form.getlist("indices[]", type=int)
 
     if not indices or not no_author_csv.exists():
@@ -776,7 +828,7 @@ def promote_no_author_batch():
 def delete_no_author_row():
     """从无作者列表中删除单条"""
     config = get_runtime_config()
-    no_author_csv = BASE_DIR / config.get("paths", {}).get("other_references_csv", "data/other_references.csv")
+    no_author_csv = runtime_path(config.get("paths", {}).get("other_references_csv", "data/other_references.csv"))
     idx = request.form.get("idx", type=int)
     if idx is None or not no_author_csv.exists():
         flash("删除失败", "danger")
@@ -795,7 +847,7 @@ def delete_no_author_row():
 def delete_no_author_batch():
     """批量删除无作者列表中的记录"""
     config = get_runtime_config()
-    no_author_csv = BASE_DIR / config.get("paths", {}).get("other_references_csv", "data/other_references.csv")
+    no_author_csv = runtime_path(config.get("paths", {}).get("other_references_csv", "data/other_references.csv"))
     indices = request.form.getlist("indices[]", type=int)
     if not indices or not no_author_csv.exists():
         flash("删除失败", "danger")
@@ -819,7 +871,7 @@ def _cascade_delete_by_titles(titles: list, config: dict):
         ("authors_emails_csv", "data/authors_emails.csv"),
         ("failed_lookup_csv", "data/failed_lookup.csv"),
     ]:
-        csv_path = BASE_DIR / paths.get(csv_key, default)
+        csv_path = runtime_path(paths.get(csv_key, default))
         if not csv_path.exists():
             continue
         try:
@@ -837,7 +889,7 @@ def _cascade_delete_by_titles(titles: list, config: dict):
 def delete_ref_row():
     """删除单条参考文献记录"""
     config = get_runtime_config()
-    ref_csv = BASE_DIR / config.get("paths", {}).get("references_csv", "data/references.csv")
+    ref_csv = runtime_path(config.get("paths", {}).get("references_csv", "data/references.csv"))
     idx = request.form.get("idx", type=int)
     if idx is None or not ref_csv.exists():
         flash("删除失败", "danger")
@@ -863,9 +915,9 @@ def delete_lookup_row():
     csv_type = request.form.get("csv_type", "found")
     idx = request.form.get("idx", type=int)
     if csv_type == "found":
-        target_csv = BASE_DIR / paths.get("authors_emails_csv", "data/authors_emails.csv")
+        target_csv = runtime_path(paths.get("authors_emails_csv", "data/authors_emails.csv"))
     else:
-        target_csv = BASE_DIR / paths.get("failed_lookup_csv", "data/failed_lookup.csv")
+        target_csv = runtime_path(paths.get("failed_lookup_csv", "data/failed_lookup.csv"))
     if idx is None or not target_csv.exists():
         flash("删除失败", "danger")
         return redirect(url_for("lookup_page"))
@@ -884,7 +936,7 @@ def edit_lookup_row():
     """编辑检索结果行的 email / corresponding_author / matched_name"""
     config = get_runtime_config()
     paths = config.get("paths", {})
-    emails_csv = BASE_DIR / paths.get("authors_emails_csv", "data/authors_emails.csv")
+    emails_csv = runtime_path(paths.get("authors_emails_csv", "data/authors_emails.csv"))
     idx = request.form.get("idx", type=int)
     if idx is None or not emails_csv.exists():
         flash("编辑失败", "danger")
@@ -910,7 +962,7 @@ def edit_send_recipient():
     """编辑发送收件人（按原邮箱匹配，更新 email 和 matched_name）"""
     config = get_runtime_config()
     paths = config.get("paths", {})
-    emails_csv = BASE_DIR / paths.get("authors_emails_csv", "data/authors_emails.csv")
+    emails_csv = runtime_path(paths.get("authors_emails_csv", "data/authors_emails.csv"))
     original_email = request.form.get("original_email", "").strip()
     new_email = request.form.get("new_email", "").strip()
     new_author_name = request.form.get("new_author_name", "").strip()
@@ -940,7 +992,7 @@ def delete_send_recipient():
     config = get_runtime_config()
     paths = config.get("paths", {})
     email_to_del = request.form.get("email", "").strip()
-    emails_csv = BASE_DIR / paths.get("authors_emails_csv", "data/authors_emails.csv")
+    emails_csv = runtime_path(paths.get("authors_emails_csv", "data/authors_emails.csv"))
     if not email_to_del or not emails_csv.exists():
         flash("删除失败", "danger")
         return redirect(url_for("send_page"))
@@ -959,7 +1011,7 @@ def delete_send_recipient():
 @app.route("/extract/delete-refs-batch", methods=["POST"])
 def delete_refs_batch():
     config = get_runtime_config()
-    ref_csv = BASE_DIR / config.get("paths", {}).get("references_csv", "data/references.csv")
+    ref_csv = runtime_path(config.get("paths", {}).get("references_csv", "data/references.csv"))
     indices = request.form.getlist("indices[]", type=int)
     if not indices or not ref_csv.exists():
         flash("未选择任何条目", "warning")
@@ -983,10 +1035,10 @@ def delete_lookup_rows_batch():
     paths = config.get("paths", {})
     csv_type = request.form.get("csv_type", "found")
     indices = request.form.getlist("indices[]", type=int)
-    target_csv = BASE_DIR / paths.get(
+    target_csv = runtime_path(paths.get(
         "authors_emails_csv" if csv_type == "found" else "failed_lookup_csv",
         "data/authors_emails.csv" if csv_type == "found" else "data/failed_lookup.csv",
-    )
+    ))
     if not indices or not target_csv.exists():
         flash("未选择任何条目", "warning")
         return redirect(url_for("lookup_page"))
@@ -1005,7 +1057,7 @@ def delete_send_recipients_batch():
     config = get_runtime_config()
     paths = config.get("paths", {})
     emails_to_del = request.form.getlist("emails[]")
-    emails_csv = BASE_DIR / paths.get("authors_emails_csv", "data/authors_emails.csv")
+    emails_csv = runtime_path(paths.get("authors_emails_csv", "data/authors_emails.csv"))
     if not emails_to_del or not emails_csv.exists():
         flash("未选择任何收件人", "warning")
         return redirect(url_for("send_page"))
@@ -1024,8 +1076,8 @@ def supplement_email():
     """在未找到邮箱的条目上直接补充邮箱，移入已找到列表"""
     config = get_runtime_config()
     paths = config.get("paths", {})
-    failed_csv = BASE_DIR / paths.get("failed_lookup_csv", "data/failed_lookup.csv")
-    emails_csv = BASE_DIR / paths.get("authors_emails_csv", "data/authors_emails.csv")
+    failed_csv = runtime_path(paths.get("failed_lookup_csv", "data/failed_lookup.csv"))
+    emails_csv = runtime_path(paths.get("authors_emails_csv", "data/authors_emails.csv"))
     idx = request.form.get("idx", type=int)
     new_email = request.form.get("email", "").strip()
     if idx is None or not new_email or not failed_csv.exists():
@@ -1066,7 +1118,7 @@ def save_email_override():
         return redirect(url_for("send_page"))
     config = get_runtime_config()
     paths = config.get("paths", {})
-    overrides_path = BASE_DIR / paths.get("email_overrides_json", "data/email_overrides.json")
+    overrides_path = runtime_path(paths.get("email_overrides_json", "data/email_overrides.json"))
     try:
         overrides_path.parent.mkdir(parents=True, exist_ok=True)
         overrides = {}
@@ -1089,7 +1141,7 @@ def export_sent_log():
 
     config = get_runtime_config()
     paths = config.get("paths", {})
-    sent_csv = BASE_DIR / paths.get("sent_log_csv", "data/sent_log.csv")
+    sent_csv = runtime_path(paths.get("sent_log_csv", "data/sent_log.csv"))
 
     if not sent_csv.exists():
         flash("发送日志不存在", "warning")
@@ -1163,7 +1215,7 @@ def download_file(filename):
 
     config = get_runtime_config()
     paths = config.get("paths", {})
-    data_dir = (BASE_DIR / paths["references_csv"]).parent
+    data_dir = runtime_path(paths["references_csv"]).parent
     filepath = data_dir / filename
     if not filepath.exists():
         flash(f"文件不存在: {filename}", "warning")

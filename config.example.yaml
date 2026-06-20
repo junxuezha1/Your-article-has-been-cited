@@ -22,6 +22,17 @@ email:
 app:
   secret_key: "change-this-secret-key"
 
+# ---- 产品信息（品牌占位，正式发布前替换）----
+product:
+  name: "{{PRODUCT_NAME}}"
+  id: "{{PRODUCT_ID}}"
+  version: "{{VERSION}}"
+  logo: "assets/logo.png"
+  logo_light: "assets/logo-light.png"
+  favicon: "assets/favicon.ico"
+  app_icon: "assets/app.ico"
+  support: "{{SUPPORT_CONTACT}}"
+
 # ---- 默认刊物信息（网页中会按当前切换的刊物覆盖名称和口吻）----
 journal:
   name: "创新与创业教育"

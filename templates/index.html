@@ -4,7 +4,20 @@
 {% block content %}
 <div class="page-header">
     <h1><i class="bi bi-house"></i> 首页概览</h1>
-    <p>欢迎使用引用通知系统，按以下三个步骤完成引用通知邮件的发送</p>
+    <p>欢迎使用 {{ product.name }}，按以下三个步骤完成引用通知邮件的发送</p>
+</div>
+
+<div class="product-identity mb-4">
+    <div>
+        <div class="name">{{ product.name }}</div>
+        <div class="meta">
+            产品 ID：{{ product.id }} · 当前刊物：《{{ current_journal.name }}》
+        </div>
+    </div>
+    <div class="text-muted small text-md-end">
+        <div>版本：{{ product.version }}</div>
+        <div>支持：{{ product.support }}</div>
+    </div>
 </div>
 
 <!-- 统计卡片 -->

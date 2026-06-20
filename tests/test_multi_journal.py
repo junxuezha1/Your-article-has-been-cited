@@ -54,10 +54,12 @@ class MultiJournalBehaviorTests(unittest.TestCase):
 
     def test_flask_journal_switch_changes_theme_and_data_scope(self):
         old_base = app_module.BASE_DIR
+        old_runtime = app_module.RUNTIME_DIR
         try:
             with tempfile.TemporaryDirectory() as tmp:
                 tmp_path = Path(tmp)
                 app_module.BASE_DIR = tmp_path
+                app_module.RUNTIME_DIR = tmp_path
                 (tmp_path / "templates").mkdir()
                 (tmp_path / "templates" / "notification.html").write_text(
                     (old_base / "templates" / "notification.html").read_text(encoding="utf-8"),
@@ -90,6 +92,23 @@ class MultiJournalBehaviorTests(unittest.TestCase):
                 self.assertNotIn("双创被引论文", social_html)
         finally:
             app_module.BASE_DIR = old_base
+            app_module.RUNTIME_DIR = old_runtime
+
+    def test_runtime_paths_use_user_data_dir_when_configured(self):
+        old_runtime = app_module.RUNTIME_DIR
+        try:
+            with tempfile.TemporaryDirectory() as tmp:
+                runtime_dir = Path(tmp)
+                app_module.RUNTIME_DIR = runtime_dir
+
+                journal = app_module.JOURNALS["innovation"]
+                paths = app_module.build_journal_paths(journal, {"paths": {}})
+                app_module.ensure_journal_dirs(paths)
+
+                self.assertEqual(app_module.runtime_path("data/innovation/input"), runtime_dir / "data" / "innovation" / "input")
+                self.assertTrue((runtime_dir / "data" / "innovation" / "input").exists())
+        finally:
+            app_module.RUNTIME_DIR = old_runtime
 
     def test_cli_send_passes_input_dir_for_original_word_attachments(self):
         config = {

@@ -38,6 +38,16 @@ citation-notifier/
 
 ## 快速开始
 
+### Windows 安装包（推荐）
+
+普通用户可在 GitHub Release 页面下载 `CitationNotifier_Setup_v1.1.0.exe` 安装使用。安装包内置私有 Python 运行时，无需手动安装 Python 依赖。
+
+安装后，程序数据与配置默认保存到：
+
+```text
+%LOCALAPPDATA%\CitationNotifier
+```
+
 ### 1. 安装依赖
 
 ```bash
@@ -74,6 +84,16 @@ paths:
 ```
 
 也可以通过环境变量 `CITATION_NOTIFIER_SECRET_KEY` 提供固定的 Web 密钥。
+
+### 构建 Windows 安装器
+
+开发者可在安装 Inno Setup 6 后运行：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\build_installer.ps1
+```
+
+生成的安装包位于 `dist\installer\`。构建过程会下载 Python embeddable 运行时并安装 `requirements.txt` 中的依赖。
 
 ### 3. 启动 Web 界面（推荐）
 

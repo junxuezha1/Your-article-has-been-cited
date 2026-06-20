@@ -3,7 +3,8 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{% block title %}引用通知系统{% endblock %} — 《{{ current_journal.name }}》</title>
+    <title>{{ product.name }} — 《{{ current_journal.name }}》</title>
+    <link rel="icon" href="{{ asset_url(product.favicon) }}">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
     <style>
@@ -16,13 +17,21 @@
         .sidebar {
             position: fixed; top: 0; left: 0; bottom: 0; width: 240px;
             background: var(--primary); color: #fff; padding-top: 0;
-            z-index: 100; overflow-y: auto;
+            z-index: 100; overflow-y: auto; display: flex; flex-direction: column;
         }
         .sidebar .brand {
             padding: 20px 16px; font-size: 15px; font-weight: 700;
             border-bottom: 1px solid rgba(255,255,255,.15); line-height: 1.5;
         }
         .brand-row { display: flex; align-items: center; gap: 8px; justify-content: space-between; }
+        .product-mark { display: flex; align-items: center; gap: 10px; min-width: 0; }
+        .product-logo {
+            width: 34px; height: 34px; object-fit: contain; border-radius: 8px;
+            background: rgba(255,255,255,.12); padding: 5px; flex-shrink: 0;
+        }
+        .product-title { min-width: 0; }
+        .product-name { display: block; color: #fff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .product-id { display: block; color: rgba(255,255,255,.72); font-size: 11px; font-weight: 400; }
         .journal-switch {
             display: inline-flex; align-items: center; gap: 4px; flex-shrink: 0;
             background: rgba(255,255,255,.16); color: #fff; border: 1px solid rgba(255,255,255,.25);
@@ -47,6 +56,11 @@
             width: 22px; height: 22px; font-size: 12px;
             display: inline-flex; align-items: center; justify-content: center;
         }
+        .sidebar-footer {
+            margin-top: auto; padding: 14px 16px; border-top: 1px solid rgba(255,255,255,.12);
+            color: rgba(255,255,255,.7); font-size: 12px; line-height: 1.55;
+        }
+        .sidebar-footer .version { color: #fff; font-weight: 600; }
         .main-content { margin-left: 240px; padding: 24px 32px; min-height: 100vh; }
         .page-header { margin-bottom: 24px; }
         .page-header h1 { font-size: 22px; font-weight: 700; color: var(--primary); margin: 0; }
@@ -79,10 +93,18 @@
             background: #fff3cd; border: 1px solid #ffc107; border-radius: 8px;
             padding: 12px 16px; display: flex; align-items: center; gap: 10px;
         }
+        .product-identity {
+            display: flex; align-items: center; justify-content: space-between; gap: 16px;
+            background: #fff; border-left: 4px solid var(--primary); border-radius: 10px;
+            box-shadow: 0 1px 3px rgba(0,0,0,.08); padding: 16px 18px;
+        }
+        .product-identity .name { font-size: 18px; font-weight: 700; color: var(--primary); }
+        .product-identity .meta { color: #6c757d; font-size: 13px; }
         .spinner-border-sm { width: 1rem; height: 1rem; }
         @media (max-width: 768px) {
             .sidebar { width: 100%; position: relative; }
             .main-content { margin-left: 0; }
+            .product-identity { align-items: flex-start; flex-direction: column; }
         }
     </style>
 </head>
@@ -91,7 +113,15 @@
     <nav class="sidebar">
         <div class="brand">
             <div class="brand-row">
-                <span><i class="bi bi-journal-richtext"></i> 引用通知系统</span>
+                <span class="product-mark">
+                    <img class="product-logo" src="{{ asset_url(product.logo_light) }}" alt="{{ product.name }}"
+                        onerror="this.style.display='none';this.nextElementSibling.style.display='inline-flex';">
+                    <i class="bi bi-graph-up-arrow product-logo" style="display:none;align-items:center;justify-content:center"></i>
+                    <span class="product-title">
+                        <span class="product-name">{{ product.name }}</span>
+                        <span class="product-id">ID {{ product.id }}</span>
+                    </span>
+                </span>
                 <span class="journal-switch">
                     {% for jid, j in journals.items() %}
                     <a href="{{ journal_url(jid) }}"
@@ -116,6 +146,10 @@
         <a href="{{ url_for('send_page') }}" class="nav-link {% if request.endpoint == 'send_page' %}active{% endif %}">
             <span class="step-badge">3</span> 预览与发送
         </a>
+        <div class="sidebar-footer">
+            <div><span class="version">{{ product.version }}</span></div>
+            <div>{{ product.support }}</div>
+        </div>
     </nav>
 
     <!-- 主内容 -->
