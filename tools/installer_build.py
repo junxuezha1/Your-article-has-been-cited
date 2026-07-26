@@ -13,7 +13,7 @@ from pathlib import Path
 
 APP_ID = "{{8D87D822-A7AF-4A2D-93EF-33E724C05F38}"
 APP_NAME = "期刊论文引用通知自动化管理系统"
-APP_VERSION = "1.1.0"
+APP_VERSION = "1.1.1"
 APP_PUBLISHER = "Citation Notifier"
 PYTHON_VERSION = "3.10.11"
 PYTHON_EMBED_URL = (
@@ -27,7 +27,6 @@ PROJECT_FILES = [
     "LICENSE",
     "README.md",
     "app.py",
-    "assets",
     "config.example.yaml",
     "db_lookup.py",
     "extract_references.py",
@@ -128,9 +127,6 @@ def make_inno_script() -> str:
         Compression=lzma2/ultra64
         SolidCompression=yes
         WizardStyle=modern
-        #ifexist "assets\app.ico"
-        SetupIconFile=assets\app.ico
-        #endif
         ArchitecturesAllowed=x64compatible
         ArchitecturesInstallIn64BitMode=x64compatible
         UninstallDisplayName={{#MyAppName}}
@@ -142,13 +138,8 @@ def make_inno_script() -> str:
         Source: "build\installer\payload\*"; DestDir: "{{app}}"; Flags: ignoreversion recursesubdirs createallsubdirs
 
         [Icons]
-        #ifexist "assets\app.ico"
-        Name: "{{group}}\{{#MyAppName}}"; Filename: "{{app}}\{{#MyAppExeName}}"; WorkingDir: "{{app}}"; IconFilename: "{{app}}\app\assets\app.ico"
-        Name: "{{autodesktop}}\{{#MyAppName}}"; Filename: "{{app}}\{{#MyAppExeName}}"; WorkingDir: "{{app}}"; IconFilename: "{{app}}\app\assets\app.ico"; Tasks: desktopicon
-        #else
         Name: "{{group}}\{{#MyAppName}}"; Filename: "{{app}}\{{#MyAppExeName}}"; WorkingDir: "{{app}}"
         Name: "{{autodesktop}}\{{#MyAppName}}"; Filename: "{{app}}\{{#MyAppExeName}}"; WorkingDir: "{{app}}"; Tasks: desktopicon
-        #endif
 
         [Run]
         Filename: "{{app}}\{{#MyAppExeName}}"; Description: "启动 {{#MyAppName}}"; Flags: postinstall shellexec skipifsilent nowait

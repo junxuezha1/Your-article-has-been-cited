@@ -111,18 +111,18 @@ def prepare_email_data(emails_csv: str) -> list[dict]:
     """
     df = pd.read_csv(emails_csv, encoding="utf-8-sig")
 
+    def _clean(val):
+        s = str(val).strip()
+        return "" if s == "nan" else s
+
     # 按邮箱分组
     grouped = {}
     for _, row in df.iterrows():
-        email = str(row.get("email", "")).strip()
-        if not email or email == "nan":
+        email = _clean(row.get("email", ""))
+        if not email:
             continue
 
         if email not in grouped:
-            def _clean(val):
-                s = str(val).strip()
-                return "" if s == "nan" else s
-
             author_name = (
                 _clean(row.get("matched_name", ""))
                 or _clean(row.get("corresponding_author", ""))
@@ -135,16 +135,82 @@ def prepare_email_data(emails_csv: str) -> list[dict]:
             }
 
         grouped[email]["citations"].append({
-            "cited_paper_title": str(row.get("title", "")).strip(),
-            "cited_paper_authors": str(row.get("authors", "")).strip(),
-            "citing_paper_title": str(row.get("article_title", "")).strip(),
-            "citing_paper_authors": str(row.get("article_authors", "")).strip(),
-            "citing_paper_file": str(row.get("source_file", "")).strip(),
+            "cited_paper_title": _clean(row.get("title", "")),
+            "cited_paper_authors": _clean(row.get("authors", "")),
+            "citing_paper_title": _clean(row.get("article_title", "")),
+            "citing_paper_authors": _clean(row.get("article_authors", "")),
+            "citing_paper_file": _clean(row.get("source_file", "")),
         })
 
     recipients = list(grouped.values())
     print(f"共 {len(recipients)} 位收件人（{sum(len(r['citations']) for r in recipients)} 条引用记录）")
     return recipients
+
+
+def _looks_like_title_fragment(author_text: str, title: str) -> bool:
+    author_text = str(author_text or "").strip()
+    title = str(title or "").strip()
+    if not author_text or not title:
+        return False
+    compact_author = author_text.replace(" ", "")
+    compact_title = title.replace(" ", "")
+    if compact_author and compact_author in compact_title:
+        return True
+    if "、" in author_text and not any(sep in author_text for sep in ("，", ",")):
+        return True
+    return False
+
+
+def _extract_source_metadata(filepath: str) -> dict:
+    suffix = os.path.splitext(filepath)[1].lower()
+    if suffix in {".doc", ".docx"}:
+        from extract_references import extract_from_word
+
+        return extract_from_word(filepath)
+    if suffix == ".pdf":
+        from extract_references import extract_from_pdf
+
+        return extract_from_pdf(filepath)
+    return {}
+
+
+def repair_citing_authors_from_input(recipients: list[dict], input_dir: str) -> None:
+    """Fill stale or suspicious source-article authors from original files."""
+    if not input_dir:
+        return
+
+    metadata_cache = {}
+    for recipient in recipients:
+        for citation in recipient.get("citations", []):
+            current_authors = str(citation.get("citing_paper_authors", "") or "").strip()
+            citing_title = str(citation.get("citing_paper_title", "") or "").strip()
+            if not citing_title:
+                continue
+            if current_authors and not _looks_like_title_fragment(current_authors, citing_title):
+                continue
+
+            source_file = str(citation.get("citing_paper_file", "") or "").strip()
+            if not source_file:
+                continue
+
+            source_path = os.path.join(input_dir, source_file)
+            if not os.path.exists(source_path):
+                continue
+
+            if source_path not in metadata_cache:
+                try:
+                    metadata_cache[source_path] = _extract_source_metadata(source_path)
+                except Exception:
+                    metadata_cache[source_path] = {}
+
+            repaired_authors = str(metadata_cache[source_path].get("article_authors", "") or "").strip()
+            if repaired_authors and not _looks_like_title_fragment(repaired_authors, citing_title):
+                citation["citing_paper_authors"] = repaired_authors
+
+
+def _inner_title_marks(value: str) -> str:
+    """Convert existing title marks before wrapping the title in outer 《》."""
+    return str(value or "").replace("《", "〈").replace("》", "〉")
 
 
 def render_email(recipient: dict, template_file: str, journal_config: dict) -> tuple[str, str]:
@@ -153,6 +219,7 @@ def render_email(recipient: dict, template_file: str, journal_config: dict) -> t
     template_name = os.path.basename(template_file)
 
     env = Environment(loader=FileSystemLoader(template_dir), autoescape=True)
+    env.filters["inner_title_marks"] = _inner_title_marks
     template = env.get_template(template_name)
 
     html_body = template.render(
@@ -160,6 +227,7 @@ def render_email(recipient: dict, template_file: str, journal_config: dict) -> t
         citations=recipient["citations"],
         journal_name=journal_config.get("name", "创新与创业教育"),
         journal_name_en=journal_config.get("name_en", "Innovation and Entrepreneurship Education"),
+        show_name_en_in_email=journal_config.get("show_name_en_in_email", True),
         journal_intro=journal_config.get("intro", ""),
         journal_website=journal_config.get("website", ""),
         journal_theme_color=journal_config.get("theme_color", "#1a5276"),
@@ -211,6 +279,7 @@ def send_emails(
     interval = email_config.get("send_interval_seconds", 8)
     if html_overrides is None:
         html_overrides = {}
+    repair_citing_authors_from_input(recipients, input_dir)
 
     # 建立 SMTP 连接
     server = _connect_smtp(smtp_config)

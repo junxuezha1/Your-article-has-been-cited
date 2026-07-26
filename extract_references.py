@@ -212,7 +212,8 @@ def _guess_title_from_paragraphs(paragraphs: list[str]) -> str:
     META_KEYWORDS = ["摘要", "Abstract", "关键词", "基金", "收稿", "作者简介"]
     SKIP_PATTERNS = re.compile(r"^(DOI|doi|https?://|www\.|issn|ISSN)", re.IGNORECASE)
     title_parts = []
-    for p in paragraphs[:15]:
+    candidates = paragraphs[:15]
+    for idx, p in enumerate(candidates):
         if len(p) < 4:
             continue
         if SKIP_PATTERNS.match(p):
@@ -221,12 +222,67 @@ def _guess_title_from_paragraphs(paragraphs: list[str]) -> str:
             break
         if 4 < len(p) < 100:
             title_parts.append(p)
-            if len(p) > 10 and not p.endswith(("：", ":", "——")):
+            next_p = candidates[idx + 1].strip() if idx + 1 < len(candidates) else ""
+            if len(p) > 10 and not p.endswith(("：", ":", "——")) and not _looks_like_title_continuation(next_p):
                 break
-    return " ".join(title_parts) if title_parts else next(
+    return _join_title_parts(title_parts) if title_parts else next(
         (p for p in paragraphs if p and not any(kw in p for kw in META_KEYWORDS) and not SKIP_PATTERNS.match(p)),
         "未知标题",
     )
+
+
+def _join_title_parts(parts: list[str]) -> str:
+    """合并标题与副标题，避免破折号副标题前出现多余空格。"""
+    title = ""
+    for part in parts:
+        part = part.strip()
+        if not title:
+            title = part
+        elif _looks_like_title_continuation(part):
+            title += part
+        else:
+            title += " " + part
+    return title
+
+
+def _looks_like_title_continuation(text: str) -> bool:
+    stripped = text.strip()
+    return stripped.startswith(("——", "—", "--", "副标题"))
+
+
+def _looks_like_affiliation_line(text: str) -> bool:
+    stripped = text.strip()
+    if not stripped:
+        return False
+    if stripped.startswith(("(", "（")) and stripped.endswith((")", "）")):
+        return True
+    affiliation_keywords = [
+        "大学", "学院", "研究院", "研究所", "中心", "实验室", "系",
+        "School", "University", "Institute", "College",
+    ]
+    return any(kw in stripped for kw in affiliation_keywords) and re.search(r"\d{5,6}|北京|上海|南京|长沙|广州|武汉|成都", stripped)
+
+
+def _looks_like_author_line(text: str) -> bool:
+    stripped = text.strip()
+    if not 1 < len(stripped) < 60:
+        return False
+    if _looks_like_title_continuation(stripped) or _looks_like_affiliation_line(stripped):
+        return False
+    if re.search(r"[。；;：:?？!！]", stripped):
+        return False
+    if any(kw in stripped for kw in ("摘要", "关键词", "基金", "收稿", "作者简介")):
+        return False
+    # 去掉常见脚注/通讯作者标记后，作者行应主要由姓名分隔符组成。
+    cleaned = re.sub(r"[\d¹²³⁴⁵⁶⁷⁸⁹⁰*＊†‡]", "", stripped)
+    cleaned = re.sub(r"\s+", "", cleaned)
+    return bool(re.fullmatch(r"[\u4e00-\u9fffA-Za-z·.,，、\-]+", cleaned))
+
+
+def _clean_author_line(text: str) -> str:
+    cleaned = re.sub(r"[\d¹²³⁴⁵⁶⁷⁸⁹⁰*＊†‡]", "", text.strip())
+    cleaned = re.sub(r"\s+", "", cleaned)
+    return cleaned.strip("，,、")
 
 
 def _guess_authors_from_paragraphs(paragraphs: list[str]) -> str:
@@ -235,17 +291,24 @@ def _guess_authors_from_paragraphs(paragraphs: list[str]) -> str:
     SKIP_PATTERNS = re.compile(r"^(DOI|doi|https?://|www\.|issn|ISSN)", re.IGNORECASE)
     # 找到标题后的段落，作者通常是短段落（< 50字），不含标点句子
     found_title = False
+    title_needs_continuation = False
     for p in paragraphs[:20]:
-        if len(p) < 4 or SKIP_PATTERNS.match(p):
+        if not p or SKIP_PATTERNS.match(p):
             continue
         if any(kw in p for kw in META_KEYWORDS):
             break
         if not found_title:
+            if len(p) < 4:
+                continue
             found_title = True
+            title_needs_continuation = p.endswith(("：", ":", "——"))
+            continue
+        if title_needs_continuation:
+            title_needs_continuation = p.endswith(("：", ":", "——"))
             continue
         # 作者行特征：较短、含中文姓名或逗号分隔
-        if 2 < len(p) < 50 and not any(kw in p for kw in META_KEYWORDS):
-            return p
+        if _looks_like_author_line(p):
+            return _clean_author_line(p)
     return ""
 
 

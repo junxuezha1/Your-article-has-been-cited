@@ -43,7 +43,6 @@ class InstallerBuildTests(unittest.TestCase):
         self.assertIn("config.example.yaml", PROJECT_FILES)
         self.assertIn("启动系统.bat", PROJECT_FILES)
         self.assertIn("templates", PROJECT_FILES)
-        self.assertIn("assets", PROJECT_FILES)
 
     def test_installed_launcher_uses_private_python_and_user_data(self):
         launcher = make_installed_launcher()

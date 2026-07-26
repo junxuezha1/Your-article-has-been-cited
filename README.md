@@ -1,4 +1,4 @@
-# 《创新与创业教育》引用通知系统
+# 期刊论文引用通知自动化管理系统
 
 自动化学术引用通知系统，用于期刊编辑部向被引作者发送引用通知邮件。
 
@@ -40,7 +40,7 @@ citation-notifier/
 
 ### Windows 安装包（推荐）
 
-普通用户可在 GitHub Release 页面下载 `CitationNotifier_Setup_v1.1.0.exe` 安装使用。安装包内置私有 Python 运行时，无需手动安装 Python 依赖。
+当前源码版本为 V1.1.1，尚未作为 GitHub Release 公开发布。开发者可按下文“构建 Windows 安装器”步骤生成 `CitationNotifier_Setup_v1.1.1.exe`；安装包可内置私有 Python 运行时，无需用户另行安装 Python 依赖。
 
 安装后，程序数据与配置默认保存到：
 

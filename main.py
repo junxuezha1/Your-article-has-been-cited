@@ -1,5 +1,5 @@
 """
-《创新与创业教育》引用通知系统 — 主入口
+期刊论文引用通知自动化管理系统 - 主入口
 
 使用方式:
     python main.py web         — 启动 Web 网页界面（推荐）
@@ -17,7 +17,7 @@ import yaml
 
 from extract_references import process_input_directory, save_references_csv
 from lookup_authors import lookup_emails, merge_manual_supplement, save_results
-from send_emails import prepare_email_data, preview_emails, send_emails
+from send_emails import prepare_email_data, preview_emails, repair_citing_authors_from_input, send_emails
 
 
 def load_config(config_path: str = "config.yaml") -> dict:
@@ -94,6 +94,7 @@ def cmd_preview(config: dict):
     if not recipients:
         print("没有可发送的收件人")
         return
+    repair_citing_authors_from_input(recipients, paths.get("input_dir", "data/input"))
     preview_emails(
         recipients,
         config["email"]["template_file"],
@@ -116,6 +117,7 @@ def cmd_send(config: dict):
     if not recipients:
         print("没有可发送的收件人")
         return
+    repair_citing_authors_from_input(recipients, paths.get("input_dir", "data/input"))
     print(f"\n即将向 {len(recipients)} 位作者发送引用通知邮件。")
     confirm = input("确认发送？(输入 yes 继续): ").strip().lower()
     if confirm != "yes":

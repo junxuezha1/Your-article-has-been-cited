@@ -106,14 +106,14 @@
     <p class="greeting">{% if author_name %}{{ author_name }} 教授{% else %}尊敬的学者{% endif %}，您好！</p>
 
     <p>
-        我们是《{{ journal_name }}》（{{ journal_name_en }}）编辑部。{% if journal_intro %}{{ journal_intro }}{% endif %}非常荣幸地通知您，您的学术成果在本刊近期发表的文章中被引用，具体信息如下：
+        很荣幸地通知您：本刊刊发文章引用了您的研究成果。有关信息如下：
     </p>
 
     {% for citing_title, group in citations | groupby('citing_paper_title') %}
     {% set group_list = group | list %}
     <div class="citation-block">
         <div class="label">引用该文献的本刊文章：</div>
-        <div class="value">{{ citing_title or '（未知标题）' }}</div>
+        <div class="value">《{{ (citing_title or '（未知标题）') | inner_title_marks }}》</div>
         {% if group_list[0].citing_paper_authors %}
         <div class="sub-value">{{ group_list[0].citing_paper_authors }}</div>
         {% endif %}
@@ -123,7 +123,7 @@
         <div class="label">引用了您的以下文章：</div>
         {% for citation in group_list %}
         <div class="cited-item">
-            <div class="value">{{ citation.cited_paper_title }}</div>
+            <div class="value">《{{ citation.cited_paper_title | inner_title_marks }}》</div>
             {% if citation.cited_paper_authors %}
             <div class="sub-value">{{ citation.cited_paper_authors }}</div>
             {% endif %}
@@ -133,10 +133,16 @@
     {% endfor %}
 
     <p class="closing">
-        感谢您的研究成果对相关学术领域的贡献。如您希望进一步了解引用详情，欢迎访问本刊官方网站{% if journal_website %}（<a href="{{ journal_website }}" style="color:{{ journal_theme_color|default('#1a5276') }};">{{ journal_website }}</a>）{% endif %}查阅全文。
+        感谢您的研究成果对相关学术领域的贡献，也感谢您的成果为本刊作者提供了重要参考。{% if journal_website %}如您希望进一步了解引用详情，欢迎访问本刊官方网站（<a href="{{ journal_website }}" style="color:{{ journal_theme_color|default('#1a5276') }};">{{ journal_website }}</a>）查阅正式出版文本。{% else %}如您希望进一步了解引用详情，可查阅本刊正式出版文本。{% endif %}
     </p>
 
     {% if attachment_note %}<p>{{ attachment_note }}</p>{% endif %}
+
+    {% if journal_intro %}
+    <p>
+        我们是《{{ journal_name }}》{% if show_name_en_in_email and journal_name_en %}（{{ journal_name_en }}）{% endif %}编辑部。{{ journal_intro }}
+    </p>
+    {% endif %}
 
     <p class="salutation">此致</p>
     <p class="salutation-reply">敬礼！</p>

@@ -8,50 +8,6 @@
 </div>
 
 <form method="POST" action="{{ url_for('config_page') }}">
-    <!-- 产品信息 -->
-    <div class="card mb-3">
-        <div class="card-header"><i class="bi bi-box-seam"></i> 产品信息</div>
-        <div class="card-body">
-            <div class="row g-3">
-                <div class="col-md-3">
-                    <label class="form-label">软件名称</label>
-                    <input type="text" class="form-control" value="{{ product.name }}" readonly>
-                </div>
-                <div class="col-md-3">
-                    <label class="form-label">产品 ID / 作者 ID</label>
-                    <input type="text" class="form-control" value="{{ product.id }}" readonly>
-                </div>
-                <div class="col-md-2">
-                    <label class="form-label">版本号</label>
-                    <input type="text" class="form-control" value="{{ product.version }}" readonly>
-                </div>
-                <div class="col-md-4">
-                    <label class="form-label">技术支持 / 联系方式</label>
-                    <input type="text" class="form-control" value="{{ product.support }}" readonly>
-                </div>
-            </div>
-            <div class="row g-3 mt-1">
-                <div class="col-md-3">
-                    <label class="form-label">Logo</label>
-                    <input type="text" class="form-control" value="{{ product.logo }}" readonly>
-                </div>
-                <div class="col-md-3">
-                    <label class="form-label">深色侧边栏 Logo</label>
-                    <input type="text" class="form-control" value="{{ product.logo_light }}" readonly>
-                </div>
-                <div class="col-md-3">
-                    <label class="form-label">favicon</label>
-                    <input type="text" class="form-control" value="{{ product.favicon }}" readonly>
-                </div>
-                <div class="col-md-3">
-                    <label class="form-label">桌面图标</label>
-                    <input type="text" class="form-control" value="{{ product.app_icon }}" readonly>
-                </div>
-            </div>
-            <div class="form-text mt-2">产品信息请在 <code>config.yaml</code> 的 <code>product</code> 区域维护。</div>
-        </div>
-    </div>
-
     <!-- SMTP 配置 -->
     <div class="card mb-3">
         <div class="card-header">

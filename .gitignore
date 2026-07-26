@@ -54,6 +54,9 @@ config.yaml
 邮箱检索/
 
 # 临时文件
+.tmp/
+软件著作权申请资料-旧版备份-*/
 ~$*
 .DS_Store
 Thumbs.db
+.gstack/

@@ -1,5 +1,5 @@
 ﻿"""
-《创新与创业教育》引用通知系统 — Flask Web 应用
+期刊论文引用通知自动化管理系统 - Flask Web 应用
 """
 
 import io
@@ -21,7 +21,7 @@ from openpyxl.styles import Font, PatternFill, Alignment
 
 from extract_references import process_input_directory, save_references_csv, split_reference_rows
 from lookup_authors import lookup_emails, save_results, merge_manual_supplement
-from send_emails import load_sent_log, prepare_email_data, render_email, send_emails
+from send_emails import load_sent_log, prepare_email_data, render_email, repair_citing_authors_from_input, send_emails
 
 BASE_DIR = Path(__file__).parent
 RUNTIME_DIR = Path(os.environ.get("CITATION_NOTIFIER_HOME", BASE_DIR)).expanduser()
@@ -32,23 +32,13 @@ PREVIEW_DIR = DATA_DIR / "preview"
 
 ALLOWED_EXTENSIONS = {".doc", ".docx", ".pdf"}
 
-DEFAULT_PRODUCT = {
-    "name": "{{MoreYield}}",
-    "id": "{{King}}",
-    "version": "{{VERSION}}",
-    "logo": "assets/logo.png",
-    "logo_light": "assets/logo-light.png",
-    "favicon": "assets/favicon.ico",
-    "app_icon": "assets/app.ico",
-    "support": "{{my18874068595@gmail.com}}",
-}
-
 JOURNALS = {
     "innovation": {
         "id": "innovation",
         "short_name": "双创",
         "name": "创新与创业教育",
         "name_en": "Innovation and Entrepreneurship Education",
+        "show_name_en_in_email": False,
         "theme": "blue",
         "primary": "#1a5276",
         "primary_light": "#2980b9",
@@ -57,14 +47,15 @@ JOURNALS = {
         "data_dir": "data/innovation",
         "sender_name": "《创新与创业教育》编辑部",
         "editorial_office": "《创新与创业教育》编辑部",
-        "intro": "《创新与创业教育》是教育部主管、中南大学主办的学术期刊，创刊于2010年。",
-        "attachment_note": "我们在附件中给您发送了原文的word版本，如您在后续大作中引用，请以知网PDF版本为准。",
+        "intro": "《创新与创业教育》是教育部主管、中南大学主办的学术期刊，创刊于2010年，为中国人文社会科学 AMI 综合评价 A 刊核心期刊扩展版，被 CNKI、万方数据、维普资讯等收录。本刊常设“学术前沿”“教学研究”“教育治理”“数智教育”“劳动教育”“创业管理”“双创实践”“技术创新”“青年论坛”等栏目，致力于打造集学术引领、实践创新与政策研讨于一体的高水平学术交流平台。",
+        "attachment_note": "以上引用信息供您知悉与参考，具体内容请以本刊正式出版版本为准。",
     },
     "csu_social": {
         "id": "csu_social",
         "short_name": "社科",
         "name": "中南大学学报（社会科学版）",
         "name_en": "Journal of Central South University (Social Science)",
+        "show_name_en_in_email": False,
         "theme": "brown",
         "primary": "#6f4e37",
         "primary_light": "#8a664a",
@@ -73,8 +64,8 @@ JOURNALS = {
         "data_dir": "data/csu_social",
         "sender_name": "《中南大学学报（社会科学版）》编辑部",
         "editorial_office": "《中南大学学报（社会科学版）》编辑部",
-        "intro": "《中南大学学报（社会科学版）》是由教育部主管、中南大学主办的综合性学术理论期刊。创刊于1995年，双月刊，单月出版，是 CSSCI 来源期刊、中文核心期刊、中国人文社会科学 AMI 综合评价 A 刊核心期刊、全国高校权威社科期刊、湖南省社会科学基金资助期刊，设有马克思主义、哲学、法学、经济学、管理学、文学、政治学与社会学等栏目。",
-        "attachment_note": "如您希望进一步了解引用详情，欢迎查阅本刊正式出版文本，并以正式出版版本为准。",
+        "intro": "《中南大学学报（社会科学版）》是由教育部主管、中南大学主办的综合性学术理论期刊，是 CSSCI 来源期刊、中文核心期刊、中国人文社会科学 AMI 综合评价 A 刊核心期刊、全国高校权威社科期刊、湖南省社会科学基金资助期刊，设有马克思主义、哲学、法学、经济学、管理学、文学、政治学与社会学等栏目。",
+        "attachment_note": "以上引用信息供您知悉与参考，具体内容请以本刊正式出版版本为准。",
     },
 }
 
@@ -157,6 +148,7 @@ def get_runtime_config() -> dict:
     config["journal"] = {
         "name": journal["name"],
         "name_en": journal["name_en"],
+        "show_name_en_in_email": journal.get("show_name_en_in_email", True),
         "intro": journal["intro"],
         "website": config.get("journal", {}).get("website", ""),
         "theme_color": journal["primary"],
@@ -166,23 +158,7 @@ def get_runtime_config() -> dict:
     }
     config.setdefault("smtp", {})
     config["smtp"]["sender_name"] = journal["sender_name"]
-    config["product"] = get_product_config(config)
     return config
-
-
-def get_product_config(config: dict | None = None) -> dict:
-    if config is None:
-        config = load_config()
-    product = dict(DEFAULT_PRODUCT)
-    product.update(config.get("product", {}) or {})
-    return product
-
-
-def asset_url(path: str) -> str:
-    normalized = str(path or "").replace("\\", "/").lstrip("/")
-    if normalized.startswith("assets/"):
-        normalized = normalized[len("assets/"):]
-    return url_for("brand_asset", filename=normalized)
 
 
 def active_path(path_key: str) -> Path:
@@ -272,14 +248,7 @@ def inject_journal_context():
         "journals": JOURNALS,
         "current_journal": current,
         "journal_url": journal_url,
-        "product": get_product_config(),
-        "asset_url": asset_url,
     }
-
-
-@app.route("/assets/<path:filename>")
-def brand_asset(filename):
-    return send_from_directory(str(BASE_DIR / "assets"), filename)
 
 
 def get_data_stats() -> dict:
@@ -628,6 +597,7 @@ def send_page():
     if emails_csv.exists():
         try:
             recipients = prepare_email_data(str(emails_csv))
+            repair_citing_authors_from_input(recipients, str(runtime_path(paths.get("input_dir", "data/input"))))
         except Exception:
             pass
 
@@ -705,6 +675,7 @@ def run_send():
         return redirect(url_for("send_page"))
 
     recipients = prepare_email_data(emails_csv)
+    repair_citing_authors_from_input(recipients, str(runtime_path(paths.get("input_dir", "data/input"))))
     if not recipients:
         flash("没有可发送的收件人", "warning")
         return redirect(url_for("send_page"))
